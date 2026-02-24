@@ -144,7 +144,7 @@ ScriptMCP.Console is published as a self-contained, single-file executable for:
 - macOS x64
 - macOS arm64
 
-1. Download the release zip for your OS and extract it to a location of your choice (e.g. `C:\Tools\ScriptMcp 1.0.9`).
+1. Download the release zip for your OS and extract it to a location of your choice (e.g. `C:\Tools\ScriptMcp 1.1.0`).
 2. Add an MCP server config to your AI agent that targets the executable.
    - `type` must be `stdio`.
 
@@ -157,7 +157,7 @@ Use the `claude mcp add` command to register ScriptMCP as a user-level MCP serve
 Windows:
 
 ```bash
-claude mcp add -s user -t stdio scriptmcp -- 'C:\Tools\ScriptMcp 1.0.9\scriptmcp.exe'
+claude mcp add -s user -t stdio scriptmcp -- 'C:\Tools\ScriptMcp 1.1.0\scriptmcp.exe'
 ```
 
 macOS/Linux:
@@ -185,7 +185,7 @@ Windows:
   “mcpServers”: {
     “scriptmcp”: {
       “type”: “stdio”,
-      “command”: “C:\\Tools\\ScriptMcp 1.0.9\\scriptmcp.exe”,
+      “command”: “C:\\Tools\\ScriptMcp 1.1.0\\scriptmcp.exe”,
       “args”: []
     }
   }
