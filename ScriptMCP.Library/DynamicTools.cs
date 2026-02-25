@@ -38,6 +38,9 @@ public class DynamicTools
     private static bool _initialized;
     private static readonly object _initLock = new();
 
+    // ── Lazy-compiled ScriptMCP helper assembly ────────────────────────────────
+    private static readonly Lazy<(byte[] bytes, MetadataReference reference)> _helperAssembly = new(CompileHelperAssembly);
+
     private static readonly JsonSerializerOptions ReadOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -400,6 +403,57 @@ public class DynamicTools
         }
     }
 
+    // ── Compilation ──────────────────────────────────────────────────────────
+
+    [McpServerTool(Name = "compile_dynamic_function")]
+    [Description("Compiles a registered code function from its stored source. " +
+                 "Use this after a ScriptMCP update to rebuild functions against the latest runtime.")]
+    public string CompileDynamicFunction(
+        [Description("The name of the dynamic function to recompile")] string name)
+    {
+        using var conn = new SqliteConnection(ConnectionString);
+        conn.Open();
+
+        using var readCmd = conn.CreateCommand();
+        readCmd.CommandText = "SELECT parameters, function_type, body FROM functions WHERE name = @name";
+        readCmd.Parameters.AddWithValue("@name", name);
+
+        using var reader = readCmd.ExecuteReader();
+        if (!reader.Read())
+            return $"Function '{name}' not found.";
+
+        var parametersJson = reader.GetString(0);
+        var functionType   = reader.GetString(1);
+        var body           = reader.GetString(2);
+        reader.Close();
+
+        if (string.Equals(functionType, "instructions", StringComparison.OrdinalIgnoreCase))
+            return $"Function '{name}' is an instructions function — nothing to compile.";
+
+        var dynParams = JsonSerializer.Deserialize<List<DynParam>>(parametersJson, ReadOptions)
+                        ?? new List<DynParam>();
+
+        var func = new DynamicFunction
+        {
+            Name         = name,
+            FunctionType = functionType,
+            Body         = body,
+            Parameters   = dynParams,
+        };
+
+        var (bytes, errors) = CompileFunction(func);
+        if (bytes == null)
+            return $"Recompilation failed:\n{errors}";
+
+        using var updateCmd = conn.CreateCommand();
+        updateCmd.CommandText = "UPDATE functions SET compiled_assembly = @asm WHERE name = @name";
+        updateCmd.Parameters.AddWithValue("@name", name);
+        updateCmd.Parameters.AddWithValue("@asm", bytes);
+        updateCmd.ExecuteNonQuery();
+
+        return $"Function '{name}' recompiled successfully.";
+    }
+
     // ── Save (kept for backward compatibility but is now a no-op) ─────────────
 
     [McpServerTool(Name = "save_dynamic_functions")]
@@ -571,61 +625,12 @@ public class DynamicTools
             {{func.Body}}
                 }
             }
-
-            public static class ScriptMCP
-            {
-                private static System.Diagnostics.ProcessStartInfo CreateStartInfo(string functionName, string arguments)
-                {
-                    var exePath = System.Environment.ProcessPath;
-                    if (string.IsNullOrEmpty(exePath))
-                        throw new InvalidOperationException("Unable to resolve the current executable path.");
-                    var psi = new System.Diagnostics.ProcessStartInfo
-                    {
-                        FileName = exePath,
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        RedirectStandardInput = true,
-                        CreateNoWindow = true,
-                    };
-                    psi.ArgumentList.Add("--exec");
-                    psi.ArgumentList.Add(functionName);
-                    psi.ArgumentList.Add(arguments);
-                    return psi;
-                }
-
-                public static string Call(string functionName, string arguments = "{}")
-                {
-                    var psi = CreateStartInfo(functionName, arguments);
-                    var proc = System.Diagnostics.Process.Start(psi)!;
-                    proc.StandardInput.Close();
-                    var stdoutTask = proc.StandardOutput.ReadToEndAsync();
-                    var stderrTask = proc.StandardError.ReadToEndAsync();
-                    if (!proc.WaitForExit(120_000))
-                    {
-                        try { proc.Kill(entireProcessTree: true); } catch { }
-                        throw new TimeoutException($"ScriptMCP.Call(\"{functionName}\") timed out after 120 seconds.");
-                    }
-                    var stdout = stdoutTask.GetAwaiter().GetResult();
-                    var stderr = stderrTask.GetAwaiter().GetResult();
-                    if (proc.ExitCode != 0)
-                        throw new Exception($"ScriptMCP.Call(\"{functionName}\") failed (exit code {proc.ExitCode}):\n{stderr}\n{stdout}".Trim());
-                    return stdout;
-                }
-
-                public static System.Diagnostics.Process Proc(string functionName, string arguments = "{}")
-                {
-                    var psi = CreateStartInfo(functionName, arguments);
-                    var proc = System.Diagnostics.Process.Start(psi)!;
-                    proc.StandardInput.Close();
-                    return proc;
-                }
-            }
             """;
 
         var syntaxTree = CSharpSyntaxTree.ParseText(sourceCode);
 
         var references = GatherMetadataReferences();
+        references.Add(_helperAssembly.Value.reference);
 
         var compilation = CSharpCompilation.Create(
             assemblyName: $"DynFunc_{func.Name}_{Guid.NewGuid():N}",
@@ -708,10 +713,9 @@ public class DynamicTools
         foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
         {
             if (asm.IsDynamic) continue;
-            // Skip our own assemblies — their ScriptMCP namespace collides
-            // with the ScriptMCP helper class in the source template.
-            var asmName = asm.GetName().Name ?? "";
-            if (asmName.StartsWith("ScriptMCP", StringComparison.OrdinalIgnoreCase)) continue;
+            // Skip ScriptMCP assemblies to avoid namespace conflict with the ScriptMCP helper class
+            var asmName = asm.GetName().Name;
+            if (asmName != null && asmName.StartsWith("ScriptMCP", StringComparison.Ordinal)) continue;
 
             try
             {
@@ -729,6 +733,92 @@ public class DynamicTools
         }
 
         return references;
+    }
+
+    // ── ScriptMCP helper assembly (compiled once, loaded into each ALC) ──────
+
+    private const string HelperSourceCode = """
+        using System;
+        using System.Diagnostics;
+
+        public static class ScriptMCP
+        {
+            private static ProcessStartInfo CreateStartInfo(string functionName, string arguments)
+            {
+                var exePath = Environment.ProcessPath;
+                if (string.IsNullOrEmpty(exePath))
+                    throw new InvalidOperationException("Unable to resolve the current executable path.");
+                var psi = new ProcessStartInfo
+                {
+                    FileName = exePath,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    RedirectStandardInput = true,
+                    CreateNoWindow = true,
+                };
+                psi.ArgumentList.Add("--exec");
+                psi.ArgumentList.Add(functionName);
+                psi.ArgumentList.Add(arguments);
+                return psi;
+            }
+
+            public static string Call(string functionName, string arguments = "{}")
+            {
+                var psi = CreateStartInfo(functionName, arguments);
+                var proc = Process.Start(psi)!;
+                proc.StandardInput.Close();
+                var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+                var stderrTask = proc.StandardError.ReadToEndAsync();
+                if (!proc.WaitForExit(120_000))
+                {
+                    try { proc.Kill(entireProcessTree: true); } catch { }
+                    throw new TimeoutException($"ScriptMCP.Call(\"{functionName}\") timed out after 120 seconds.");
+                }
+                var stdout = stdoutTask.GetAwaiter().GetResult();
+                var stderr = stderrTask.GetAwaiter().GetResult();
+                if (proc.ExitCode != 0)
+                    throw new Exception($"ScriptMCP.Call(\"{functionName}\") failed (exit code {proc.ExitCode}):\n{stderr}\n{stdout}".Trim());
+                return stdout;
+            }
+
+            public static Process Proc(string functionName, string arguments = "{}")
+            {
+                var psi = CreateStartInfo(functionName, arguments);
+                var proc = Process.Start(psi)!;
+                proc.StandardInput.Close();
+                return proc;
+            }
+        }
+        """;
+
+    private static (byte[] bytes, MetadataReference reference) CompileHelperAssembly()
+    {
+        var syntaxTree = CSharpSyntaxTree.ParseText(HelperSourceCode);
+        var references = GatherMetadataReferences();
+
+        var compilation = CSharpCompilation.Create(
+            assemblyName: "ScriptMCP.Helpers",
+            syntaxTrees: new[] { syntaxTree },
+            references: references,
+            options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
+                .WithOptimizationLevel(OptimizationLevel.Release));
+
+        using var peStream = new MemoryStream();
+        var emitResult = compilation.Emit(peStream);
+
+        if (!emitResult.Success)
+        {
+            var errors = emitResult.Diagnostics
+                .Where(d => d.Severity == DiagnosticSeverity.Error)
+                .Select(d => d.ToString());
+            throw new InvalidOperationException(
+                $"Failed to compile ScriptMCP helper assembly:\n{string.Join("\n", errors)}");
+        }
+
+        var bytes = peStream.ToArray();
+        var metadataRef = MetadataReference.CreateFromImage(bytes);
+        return (bytes, metadataRef);
     }
 
     // ── Execution ─────────────────────────────────────────────────────────────
@@ -754,6 +844,7 @@ public class DynamicTools
 
             // Load into collectible ALC
             alc = new AssemblyLoadContext(funcName, isCollectible: true);
+            alc.LoadFromStream(new MemoryStream(_helperAssembly.Value.bytes));
             var assembly = alc.LoadFromStream(new MemoryStream(assemblyBytes));
 
             var scriptType = assembly.GetType("DynamicScript")

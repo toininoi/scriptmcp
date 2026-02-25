@@ -6,7 +6,7 @@ A dynamic function runtime for AI agents via the Model Context Protocol (MCP). S
 
 ## Overview
 
-ScriptMCP exposes 7 MCP tools that together form a self-extending toolbox:
+ScriptMCP exposes 8 MCP tools that together form a self-extending toolbox:
 
 | Tool | Description |
 |------|-------------|
@@ -15,6 +15,7 @@ ScriptMCP exposes 7 MCP tools that together form a self-extending toolbox:
 | `call_dynamic_process` | Execute a function out-of-process (subprocess) |
 | `list_dynamic_functions` | List all registered functions |
 | `inspect_dynamic_function` | View source code and metadata of a function |
+| `compile_dynamic_function` | Compile a code function from its stored source |
 | `delete_dynamic_function` | Remove a function |
 | `save_dynamic_functions` | Legacy no-op (functions auto-persist to SQLite) |
 
@@ -144,7 +145,7 @@ ScriptMCP.Console is published as a self-contained, single-file executable for:
 - macOS x64
 - macOS arm64
 
-1. Download the release zip for your OS and extract it to a location of your choice (e.g. `C:\Tools\ScriptMcp 1.1.0`).
+1. Download the release zip for your OS and extract it to a location of your choice (e.g. `C:\Tools\ScriptMcp 1.1.1`).
 2. Add an MCP server config to your AI agent that targets the executable.
    - `type` must be `stdio`.
 
@@ -157,7 +158,7 @@ Use the `claude mcp add` command to register ScriptMCP as a user-level MCP serve
 Windows:
 
 ```bash
-claude mcp add -s user -t stdio scriptmcp -- 'C:\Tools\ScriptMcp 1.1.0\scriptmcp.exe'
+claude mcp add -s user -t stdio scriptmcp -- 'C:\Tools\ScriptMcp 1.1.1\scriptmcp.exe'
 ```
 
 macOS/Linux:
@@ -185,7 +186,7 @@ Windows:
   “mcpServers”: {
     “scriptmcp”: {
       “type”: “stdio”,
-      “command”: “C:\\Tools\\ScriptMcp 1.1.0\\scriptmcp.exe”,
+      “command”: “C:\\Tools\\ScriptMcp 1.1.1\\scriptmcp.exe”,
       “args”: []
     }
   }
@@ -218,7 +219,7 @@ Windows:
 {
   “mcpServers”: {
     “scriptmcp”: {
-      “command”: “C:\\Tools\\ScriptMcp 1.0.9\\scriptmcp.exe”,
+      “command”: “C:\\Tools\\ScriptMcp 1.1.1\\scriptmcp.exe”,
       “args”: []
     }
   }
