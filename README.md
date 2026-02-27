@@ -68,7 +68,58 @@ You:    what time is it?
 Agent:  10:07:39 pm
 ```
 
-### Stock prices
+### Filesystem helper
+
+```
+You:    create a function that lists all .log files under the current directory
+Agent:  [registers list_logs → return Directory.GetFiles(".", "*.log", SearchOption.AllDirectories)]
+
+You:    run list_logs
+Agent:  ./logs/app.log
+        ./logs/errors.log
+```
+
+### HTTP JSON fetch
+
+```
+You:    create a function that fetches a JSON endpoint and returns the top-level keys
+Agent:  [registers json_keys → fetches via HttpClient, parses with System.Text.Json]
+
+You:    run json_keys on https://api.example.com/status
+Agent:  status, version, uptime
+```
+
+### Text processing
+
+```
+You:    create a function that counts words in a string input
+Agent:  [registers word_count with a text parameter]
+
+You:    word_count: "hello there general kenobi"
+Agent:  4
+```
+
+### System info
+
+```
+You:    create a function that returns machine name and current uptime
+Agent:  [registers uptime → uses Environment.MachineName + Environment.TickCount64]
+
+You:    run uptime
+Agent:  devbox-01 — 03:42:19
+```
+
+### Simple math utility
+
+```
+You:    create a function that converts Fahrenheit to Celsius
+Agent:  [registers f_to_c with a temp parameter]
+
+You:    f_to_c: 98.6
+Agent:  37.0
+```
+
+### Small finance example (optional)
 
 ```
 You:    create a function that gets the current stock price for a given ticker symbol
@@ -77,40 +128,6 @@ Agent:  [registers get_stock_price with a symbol parameter, fetches from a finan
 You:    what's the price of AAPL?
 Agent:  AAPL: $266.86 (+3.37, +1.28%)
 ```
-
-### Parallel market overview
-
-Once you have individual functions, you can compose them. `market_fast` spawns three subprocesses in parallel:
-
-```
-You:    create a function that gets NASDAQ and Dow Jones top gainers in parallel
-Agent:  [registers market_fast — spawns get_top_nasdaq_stocks and get_top_dow_stocks
-         as parallel subprocesses, then fetches company names]
-
-You:    run market_fast
-```
-
-Result (formatted per output instructions as markdown tables):
-
-#### NASDAQ-100: $22,592.15
-
-| Ticker | Company | Price | Change |
-|--------|---------|------:|-------:|
-| NVDA | NVIDIA Corporation | $190.31 | +0.26% |
-| AAPL | Apple Inc. | $266.68 | +0.79% |
-| WMT | Walmart Inc. | $125.88 | +2.35% |
-| ASML | ASML Holding N.V. | $1,474.58 | +0.34% |
-| COST | Costco Wholesale | $986.60 | +0.14% |
-
-#### Dow Jones: $48,811.70
-
-| Ticker | Company | Price | Change |
-|--------|---------|------:|-------:|
-| PG | The Procter & Gamble Company | $165.22 | +3.06% |
-| WMT | Walmart Inc. | $125.73 | +1.79% |
-| KO | The Coca-Cola Company | $80.71 | +1.46% |
-| MCD | McDonald's Corporation | $334.83 | +1.39% |
-| AAPL | Apple Inc. | $266.68 | +1.21% |
 
 ### Instructions-type functions
 
