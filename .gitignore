@@ -6,3 +6,8 @@ artifacts/
 .release/
 .mcp.json
 ScriptMcp.Server/
+.*
+**/.*
+!.github/
+!.github/**
+!.gitignore
