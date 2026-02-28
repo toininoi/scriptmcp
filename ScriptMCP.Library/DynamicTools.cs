@@ -356,7 +356,7 @@ public class DynamicTools
                 FunctionType        = functionType ?? "instructions",
                 Body                = body,
                 OutputInstructions  = string.IsNullOrWhiteSpace(outputInstructions)
-                    ? "Return exactly the function output with no added or removed text. Do not wrap, label, summarize, explain, prefix, suffix, restate, or otherwise modify the output."
+                    ? null
                     : outputInstructions,
             };
 

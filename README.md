@@ -181,6 +181,42 @@ Agent:  ┌──────────────┐
         └──────────────┘
 ```
 
+### Chaining functions with output instructions
+
+Code functions can delegate work to the AI by embedding `[Output Instructions]` in their return value. This lets a code function produce data and tell the AI what to do with it next — including calling other functions.
+
+```
+You:    create get_time — returns the current time inside an ASCII box
+Agent:  [registers get_time → returns ┌──────────────┐ │ 11:12:23 am │ └──────────────┘]
+
+You:    create extract_from_box — extracts text from inside box-drawing characters
+Agent:  [registers extract_from_box → parses │ delimiters, returns inner text]
+
+You:    create get_time_string — formats "11:12:23 am" as "11 hours, 12 mins, 23 secs"
+Agent:  [registers get_time_string → parses time, returns human-readable string]
+```
+
+Now chain them. `foo` calls `get_time` in code, then hands off to the AI:
+
+```
+You:    create foo — calls get_time, then tells the AI to extract the time
+        and format it via the other two functions
+Agent:  [registers foo as a code function]:
+
+        var timeOutput = ScriptMCP.Call("get_time", "{}").Trim();
+        return timeOutput + "\n[Output Instructions]: Call extract_from_box "
+             + "with the boxed text above, then call get_time_string "
+             + "with the extracted time and return exactly its result.";
+
+You:    run foo
+Agent:  [foo runs get_time → returns boxed time + output instructions]
+        [AI follows instructions → calls extract_from_box → "11:12:23 am"]
+        [AI follows instructions → calls get_time_string → "11 hours, 12 mins, 23 secs"]
+        11 hours, 12 mins, 23 secs
+```
+
+The code function handles what code does best (calling APIs, fetching data), then the AI handles what it does best (interpreting instructions and chaining tool calls). This pattern works anywhere a code function needs the AI to take the next step.
+
 ## Install
 
 ### Prebuilt Console App
