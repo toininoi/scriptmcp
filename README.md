@@ -324,6 +324,41 @@ Functions are persisted in a SQLite database created on first run:
 - macOS: `~/Library/Application Support/ScriptMCP/tools.db`
 - Linux: `~/.local/share/ScriptMCP/tools.db`
 
+## Agent Instructions (CLAUDE.md / AGENTS.md)
+
+ScriptMCP delivers its agent instructions automatically during the MCP handshake — when the AI agent connects to the server, it receives all the behavioral rules it needs (list functions at conversation start, ask clarifying questions when multiple candidates match, inspect before calling, respect output instructions, etc.). **No extra files are needed for normal operation.**
+
+However, if ScriptMCP is not behaving as expected — for example, the agent isn't discovering functions, isn't asking clarifying questions, or is calling functions without inspecting first — you can reinforce the instructions by placing a markdown file in your project or globally. This gives the agent a second source of truth to fall back on.
+
+### CLAUDE.md — Claude Code
+
+`CLAUDE.md` is read automatically by [Claude Code](https://docs.anthropic.com/en/docs/claude-code) when it starts a session in a directory. Place it in the **project root** so Claude Code picks it up when working in the ScriptMCP repo.
+
+**Global placement** — To avoid duplicating `CLAUDE.md` in every project, you can place it at the user level:
+
+```
+~/.claude/CLAUDE.md
+```
+
+On Windows: `%USERPROFILE%\.claude\CLAUDE.md`
+
+A user-level `CLAUDE.md` is loaded into every Claude Code session regardless of working directory. This is ideal if you use ScriptMCP across multiple projects. If both a global and a project-level `CLAUDE.md` exist, Claude Code merges them (project-level instructions take priority for conflicts).
+
+### AGENTS.md — OpenAI Codex
+
+`AGENTS.md` is read automatically by [OpenAI Codex CLI](https://github.com/openai/codex) when it enters a directory. Codex reads `AGENTS.md` files at every level of the directory tree it traverses, so placing one in the project root covers the entire repo.
+
+**Global placement** — Codex does not have a dedicated global instructions path like Claude Code. However, you can place an `AGENTS.md` in your **home directory** (`~/AGENTS.md`), and it will be picked up when Codex operates from any subdirectory beneath it. Alternatively, place it in a common parent directory of your projects.
+
+### Which file do I need?
+
+| Agent | File | Global location |
+|-------|------|-----------------|
+| Claude Code | `CLAUDE.md` | `~/.claude/CLAUDE.md` |
+| OpenAI Codex | `AGENTS.md` | `~/AGENTS.md` (or common parent directory) |
+
+If you only use one agent, you only need the corresponding file. Both files contain the same instructions — just formatted for each agent's conventions.
+
 ## Scripting Environment
 
 - **.NET 9 / C# 13** runtime — no .NET installation required, the executable is self-contained
