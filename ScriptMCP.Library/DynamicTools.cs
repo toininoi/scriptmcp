@@ -645,6 +645,256 @@ public class DynamicTools
         }
     }
 
+    // ── Shared Output ─────────────────────────────────────────────────────────
+
+    [McpServerTool(Name = "read_shared_memory")]
+    [Description("Reads and returns JSONL entries from the ScriptMCP exec output file (written by --exec_out)")]
+    public string ReadSharedMemory(
+        [Description("If provided, search backwards from the latest entry and return only the output of the most recent match for this function name. If empty, return all entries.")]
+        string func = "")
+    {
+        var outputPath = Path.Combine(
+            Path.GetDirectoryName(SavePath) ?? ".",
+            "exec_output.jsonl");
+
+        if (!File.Exists(outputPath))
+            return "(empty)";
+
+        var content = File.ReadAllText(outputPath).TrimEnd();
+        if (string.IsNullOrEmpty(content))
+            return "(empty)";
+
+        if (string.IsNullOrEmpty(func))
+        {
+            var fileInfo = new FileInfo(outputPath);
+            var sb = new StringBuilder();
+            sb.AppendLine($"[Size: {fileInfo.Length:N0} / 1,048,576 bytes ({(fileInfo.Length * 100.0 / 1_048_576):F2}% used)]");
+            sb.Append(content);
+            return sb.ToString();
+        }
+
+        // Search backwards through lines for the most recent match
+        var lines = content.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        for (int i = lines.Length - 1; i >= 0; i--)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(lines[i]);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("func", out var funcProp) && funcProp.GetString() == func)
+                {
+                    if (root.TryGetProperty("out", out var outProp))
+                        return outProp.GetString() ?? "";
+                }
+            }
+            catch { }
+        }
+
+        return $"No entry found for '{func}'";
+    }
+
+    // ── Scheduled Tasks ────────────────────────────────────────────────────────
+
+    [McpServerTool(Name = "create_scheduled_task")]
+    [Description("Creates a scheduled task (Windows Task Scheduler or cron on Linux/macOS) that runs a ScriptMCP dynamic function at a given interval in minutes")]
+    public string CreateScheduledTask(
+        [Description("Name of the ScriptMCP dynamic function to run")] string function_name,
+        [Description("JSON arguments for the function (default: {})")] string function_args = "{}",
+        [Description("How often to run the task, in minutes")] int interval_minutes = 1)
+    {
+        string exePath = Environment.ProcessPath ?? "";
+        if (string.IsNullOrEmpty(exePath))
+            return "Error: Unable to resolve the current executable path.";
+
+        if (OperatingSystem.IsWindows())
+            return CreateScheduledTaskWindows(exePath, function_name, function_args, interval_minutes);
+        else
+            return CreateScheduledTaskCron(exePath, function_name, function_args, interval_minutes);
+    }
+
+    private string CreateScheduledTaskWindows(string exePath, string function_name, string function_args, int interval_minutes)
+    {
+        string taskName = $"{function_name} ({interval_minutes}m)";
+        string tn = $"ScriptMCP\\{taskName}";
+
+        // Quote the JSON argument payload for the target process because schtasks
+        // stores the executable path separately from the argument string.
+        string escapedArgs = function_args.Replace("\"", "\\\"");
+
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "schtasks",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        // Use ArgumentList for proper quoting — schtasks gets each arg correctly escaped
+        psi.ArgumentList.Add("/Create");
+        psi.ArgumentList.Add("/TN");
+        psi.ArgumentList.Add(tn);
+        psi.ArgumentList.Add("/TR");
+        psi.ArgumentList.Add($"\"{exePath}\" --exec_out {function_name} \"{escapedArgs}\"");
+        psi.ArgumentList.Add("/SC");
+        psi.ArgumentList.Add("MINUTE");
+        psi.ArgumentList.Add("/MO");
+        psi.ArgumentList.Add(interval_minutes.ToString());
+        psi.ArgumentList.Add("/F");
+
+        // Create the task
+        var proc = System.Diagnostics.Process.Start(psi)!;
+        string output = proc.StandardOutput.ReadToEnd().Trim();
+        string error = proc.StandardError.ReadToEnd().Trim();
+        proc.WaitForExit();
+
+        if (proc.ExitCode != 0)
+        {
+            var err = new StringBuilder();
+            err.AppendLine($"Failed to create task. Exit code: {proc.ExitCode}");
+            if (!string.IsNullOrEmpty(output)) err.AppendLine(output);
+            if (!string.IsNullOrEmpty(error)) err.AppendLine(error);
+            return err.ToString().Trim();
+        }
+
+        // Run it immediately
+        var runPsi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "schtasks",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        runPsi.ArgumentList.Add("/Run");
+        runPsi.ArgumentList.Add("/TN");
+        runPsi.ArgumentList.Add(tn);
+        var runProc = System.Diagnostics.Process.Start(runPsi)!;
+        runProc.StandardOutput.ReadToEnd();
+        runProc.StandardError.ReadToEnd();
+        runProc.WaitForExit();
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"Scheduled task created and started.");
+        sb.AppendLine($"  Name:     {tn}");
+        sb.AppendLine($"  Function: {function_name}({function_args})");
+        sb.AppendLine($"  Exe:      {exePath}");
+        sb.AppendLine($"  Interval: Every {interval_minutes} minute(s)");
+        sb.AppendLine();
+        sb.AppendLine("Manage with:");
+        sb.AppendLine($"  Run now:  schtasks /Run /TN \"{tn}\"");
+        sb.AppendLine($"  Disable:  schtasks /Change /TN \"{tn}\" /Disable");
+        sb.AppendLine($"  Delete:   schtasks /Delete /TN \"{tn}\" /F");
+
+        return sb.ToString().Trim();
+    }
+
+    private string CreateScheduledTaskCron(string exePath, string function_name, string function_args, int interval_minutes)
+    {
+        // Build the cron command line
+        string escapedArgs = function_args.Replace("'", "'\\''");
+        string command = $"'{exePath}' --exec_out {function_name} '{escapedArgs}'";
+
+        // Build the cron schedule expression
+        string schedule = interval_minutes switch
+        {
+            < 60 => $"*/{interval_minutes} * * * *",
+            60 => "0 * * * *",
+            _ when interval_minutes % 60 == 0 => $"0 */{interval_minutes / 60} * * *",
+            _ => $"*/{interval_minutes} * * * *",
+        };
+
+        string cronLine = $"{schedule} {command} # ScriptMCP:{function_name}";
+
+        // Read existing crontab, remove any previous entry for this function, append new one
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "crontab",
+            Arguments = "-l",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        var proc = System.Diagnostics.Process.Start(psi)!;
+        string existing = proc.StandardOutput.ReadToEnd();
+        proc.StandardError.ReadToEnd();
+        proc.WaitForExit();
+
+        // Filter out previous ScriptMCP entries for this function
+        string tag = $"# ScriptMCP:{function_name}";
+        var lines = existing.Split('\n')
+            .Where(l => !l.Contains(tag))
+            .ToList();
+
+        // Remove trailing empty lines, then append new entry
+        while (lines.Count > 0 && string.IsNullOrWhiteSpace(lines[^1]))
+            lines.RemoveAt(lines.Count - 1);
+        lines.Add(cronLine);
+        lines.Add(""); // trailing newline
+
+        string newCrontab = string.Join("\n", lines);
+
+        // Install the new crontab via stdin
+        var installPsi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "crontab",
+            Arguments = "-",
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        var installProc = System.Diagnostics.Process.Start(installPsi)!;
+        installProc.StandardInput.Write(newCrontab);
+        installProc.StandardInput.Close();
+        string installOutput = installProc.StandardOutput.ReadToEnd().Trim();
+        string installError = installProc.StandardError.ReadToEnd().Trim();
+        installProc.WaitForExit();
+
+        if (installProc.ExitCode != 0)
+        {
+            var err = new StringBuilder();
+            err.AppendLine($"Failed to install crontab. Exit code: {installProc.ExitCode}");
+            if (!string.IsNullOrEmpty(installOutput)) err.AppendLine(installOutput);
+            if (!string.IsNullOrEmpty(installError)) err.AppendLine(installError);
+            return err.ToString().Trim();
+        }
+
+        // Run it immediately
+        var runPsi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = exePath,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        runPsi.ArgumentList.Add("--exec_out");
+        runPsi.ArgumentList.Add(function_name);
+        runPsi.ArgumentList.Add(function_args);
+        var runProc = System.Diagnostics.Process.Start(runPsi)!;
+        runProc.StandardOutput.ReadToEnd();
+        runProc.StandardError.ReadToEnd();
+        runProc.WaitForExit();
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"Cron job created and run once.");
+        sb.AppendLine($"  Function: {function_name}({function_args})");
+        sb.AppendLine($"  Exe:      {exePath}");
+        sb.AppendLine($"  Schedule: {schedule}");
+        sb.AppendLine($"  Tag:      {tag}");
+        sb.AppendLine();
+        sb.AppendLine("Manage with:");
+        sb.AppendLine($"  List:     crontab -l");
+        sb.AppendLine($"  Remove:   crontab -l | grep -v '{tag}' | crontab -");
+
+        return sb.ToString().Trim();
+    }
+
     // ── Compilation ───────────────────────────────────────────────────────────
 
     private static (byte[]? bytes, string? errors) CompileFunction(DynamicFunction func)

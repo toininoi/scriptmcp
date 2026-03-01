@@ -76,3 +76,14 @@ If the output instructions say or imply that the function output should be retur
 INSPECTION TOOL: inspect_dynamic_function accepts the function name plus an optional fullInspection boolean.
 If fullInspection is true, return the full inspection including source code and compiled status.
 If fullInspection is false or omitted, return everything except source code and compiled status.
+NATIVE TOOLS: In addition to the dynamic function tools above, ScriptMCP provides these built-in native tools:
+- read_shared_memory: Reads JSONL entries from the exec output file (exec_output.jsonl in the ScriptMCP data directory).
+  Optional parameter: func (string) — if provided, searches backwards and returns only the 'out' field of the most recent
+  matching entry. If empty, returns all entries with a file size header.
+- create_scheduled_task: Creates a scheduled task that runs a dynamic function at a recurring interval.
+  On Windows, uses Task Scheduler (schtasks) with a hidden PowerShell window. On Linux/macOS, uses cron.
+  Parameters: function_name (string, required), function_args (string, default "{}"), interval_minutes (int, required).
+  The task runs via --exec_out, which appends results to exec_output.jsonl.
+  After creation, the task is immediately run once.
+These are native MCP tools — they do not appear in list_dynamic_functions and do not need inspection before use.
+Call them directly when the user asks to schedule a function or read previous execution output.

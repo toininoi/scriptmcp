@@ -6,7 +6,7 @@ A dynamic function runtime for AI agents via the Model Context Protocol (MCP). S
 
 ## Overview
 
-ScriptMCP exposes 9 MCP tools that together form a self-extending toolbox:
+ScriptMCP exposes 11 MCP tools that together form a self-extending toolbox:
 
 | Tool | Description |
 |------|-------------|
@@ -19,6 +19,8 @@ ScriptMCP exposes 9 MCP tools that together form a self-extending toolbox:
 | `compile_dynamic_function` | Compile a code function from its stored source |
 | `delete_dynamic_function` | Remove a function |
 | `save_dynamic_functions` | Legacy no-op (functions auto-persist to SQLite) |
+| `create_scheduled_task` | Schedule a function to run at a recurring interval |
+| `read_shared_memory` | Read execution output from scheduled or CLI-invoked functions |
 
 ### How It Works
 
@@ -70,6 +72,37 @@ If the update changes `body`, `parameters`, or `function_type`, ScriptMCP recomp
 - **Parallel execution** — run multiple functions concurrently without blocking the MCP server
 - **Isolation** — function crashes don't affect the server
 - **Composition** — functions can spawn other functions as subprocesses (e.g. `market_fast` runs NASDAQ and Dow queries in parallel)
+
+### Scheduled Tasks
+
+`create_scheduled_task` sets up a recurring job that runs a dynamic function at a fixed interval:
+
+```
+You:    schedule get_stock_price to run every 5 minutes with {"symbol":"AAPL"}
+Agent:  [calls create_scheduled_task → function_name="get_stock_price",
+         function_args='{"symbol":"AAPL"}', interval_minutes=5]
+        Scheduled task created and started.
+```
+
+- **Windows** — uses Task Scheduler (`schtasks`). The task is wrapped in `powershell -WindowStyle Hidden` so no console window flashes on each run.
+- **Linux / macOS** — uses `cron`. Each entry is tagged with `# ScriptMCP:<function_name>` for easy identification and removal.
+
+After creation, the function is immediately run once. The task uses `--exec_out` mode, which appends results to `exec_output.jsonl` in the ScriptMCP data directory.
+
+### Reading Execution Output
+
+`read_shared_memory` reads the `exec_output.jsonl` file written by `--exec_out` (from scheduled tasks or manual CLI invocations):
+
+```
+You:    what was the last stock price result?
+Agent:  [calls read_shared_memory → func="get_stock_price"]
+        AAPL: $266.86 (+3.37, +1.28%)
+```
+
+- **No `func` parameter** — returns all JSONL entries with a file size header
+- **With `func` parameter** — searches backwards and returns only the `out` field of the most recent match
+
+Each entry is a JSON line: `{"func": "name", "ts": "ISO8601", "out": "result"}`. The file is capped at 1 MB — when exceeded, the oldest half of entries is discarded.
 
 ## Examples
 
@@ -326,14 +359,21 @@ macOS/Linux:
 ScriptMCP can also run a single function from the command line without starting the MCP server:
 
 ```bash
-scriptmcp.exe --exec get_time
+scriptmcp --exec get_time
 # 10:07:39 pm
 
-scriptmcp.exe --exec get_stock_price '{“symbol”:”AAPL”}'
+scriptmcp --exec get_stock_price '{“symbol”:”AAPL”}'
 # AAPL: $266.86 (+3.37, +1.28%)
 ```
 
 This is what `call_dynamic_process` uses under the hood.
+
+Use `--exec_out` instead of `--exec` to also append the result to `exec_output.jsonl` (this is what scheduled tasks use):
+
+```bash
+scriptmcp --exec_out get_stock_price '{“symbol”:”AAPL”}'
+# prints to stdout AND appends to exec_output.jsonl
+```
 
 ### Codex CLI (MCP)
 
@@ -379,13 +419,20 @@ macOS/Linux example:
 command = "/opt/scriptmcp/scriptmcp"
 ```
 
-### tools.db Location
+### Data Directory
 
-Functions are persisted in a SQLite database created on first run:
+Functions are persisted in a SQLite database created on first run. Execution output from `--exec_out` is stored alongside it:
 
-- Windows: `%LOCALAPPDATA%\ScriptMCP\tools.db`
-- macOS: `~/Library/Application Support/ScriptMCP/tools.db`
-- Linux: `~/.local/share/ScriptMCP/tools.db`
+- Windows: `%LOCALAPPDATA%\ScriptMCP\`
+- macOS: `~/Library/Application Support/ScriptMCP/`
+- Linux: `~/.local/share/ScriptMCP/`
+
+Files in this directory:
+
+| File | Purpose |
+|------|---------|
+| `tools.db` | SQLite database of registered functions |
+| `exec_output.jsonl` | JSONL log of `--exec_out` results (capped at 1 MB) |
 
 ## Agent Instructions (CLAUDE.md / AGENTS.md)
 
