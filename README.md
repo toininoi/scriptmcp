@@ -84,7 +84,7 @@ Agent:  [calls create_scheduled_task → function_name="get_stock_price",
         Scheduled task created and started.
 ```
 
-- **Windows** — uses Task Scheduler (`schtasks`). The task is wrapped in `powershell -WindowStyle Hidden` so no console window flashes on each run.
+- **Windows** — uses Task Scheduler (`schtasks`) and runs `scriptmcp.exe --exec_out ...` directly.
 - **Linux / macOS** — uses `cron`. Each entry is tagged with `# ScriptMCP:<function_name>` for easy identification and removal.
 
 After creation, the function is immediately run once. The task uses `--exec_out` mode, which appends results to `exec_output.jsonl` in the ScriptMCP data directory.
