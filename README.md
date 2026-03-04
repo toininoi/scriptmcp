@@ -162,7 +162,7 @@ Just describe what you need in natural language — the AI writes the C# code, r
 
 ```
 You:    create a function that returns the current time, nothing else
-Agent:  [registers get_time → return DateTime.Now.ToString(“hh:mm:ss tt”);]
+Agent:  [registers get_time → return DateTime.Now.ToString("hh:mm:ss tt");]
 
 You:    what time is it?
 Agent:  10:07:39 pm
@@ -173,7 +173,7 @@ Agent:  10:07:39 pm
 If you prefer full control, you can dictate the exact implementation:
 
 ```
-You:    register a code function called get_time with body: return DateTime.Now.ToString(“hh:mm:ss tt”);
+You:    register a code function called get_time with body: return DateTime.Now.ToString("hh:mm:ss tt");
 Agent:  [registers get_time with your exact code]
 
 You:    what time is it?
@@ -246,7 +246,7 @@ Agent:  AAPL: $266.86 (+3.37, +1.28%)
 Not everything needs code. Plain English instructions let the AI orchestrate multi-step workflows:
 
 ```
-You:    find the stock ticker for “that electric car company elon runs”
+You:    find the stock ticker for "that electric car company elon runs"
 Agent:  [calls find_stock_symbol → reads instructions → searches Yahoo Finance]
         TSLA — Tesla, Inc. (NASDAQ)
 ```
@@ -256,7 +256,7 @@ Agent:  [calls find_stock_symbol → reads instructions → searches Yahoo Finan
 Control how results are presented:
 
 ```
-You:    add output instructions to get_time: “Display the time inside an ASCII box”
+You:    add output instructions to get_time: "Display the time inside an ASCII box"
 
 You:    what time is it?
 Agent:  ┌──────────────┐
@@ -348,11 +348,11 @@ Windows:
 
 ```json
 {
-  “mcpServers”: {
-    “scriptmcp”: {
-      “type”: “stdio”,
-      “command”: “C:\\Tools\\ScriptMcp 1.1.1\\scriptmcp.exe”,
-      “args”: []
+  "mcpServers": {
+    "scriptmcp": {
+      "type": "stdio",
+      "command": "C:\\Tools\\ScriptMcp 1.1.1\\scriptmcp.exe",
+      "args": []
     }
   }
 }
@@ -362,11 +362,11 @@ macOS/Linux example:
 
 ```json
 {
-  “mcpServers”: {
-    “scriptmcp”: {
-      “type”: “stdio”,
-      “command”: “/opt/scriptmcp/scriptmcp”,
-      “args”: []
+  "mcpServers": {
+    "scriptmcp": {
+      "type": "stdio",
+      "command": "/opt/scriptmcp/scriptmcp",
+      "args": []
     }
   }
 }
@@ -382,10 +382,10 @@ Windows:
 
 ```json
 {
-  “mcpServers”: {
-    “scriptmcp”: {
-      “command”: “C:\\Tools\\ScriptMcp 1.1.1\\scriptmcp.exe”,
-      “args”: []
+  "mcpServers": {
+    "scriptmcp": {
+      "command": "C:\\Tools\\ScriptMcp 1.1.1\\scriptmcp.exe",
+      "args": []
     }
   }
 }
@@ -395,10 +395,10 @@ macOS/Linux:
 
 ```json
 {
-  “mcpServers”: {
-    “scriptmcp”: {
-      “command”: “/opt/scriptmcp/scriptmcp”,
-      “args”: []
+  "mcpServers": {
+    "scriptmcp": {
+      "command": "/opt/scriptmcp/scriptmcp",
+      "args": []
     }
   }
 }
@@ -412,7 +412,7 @@ ScriptMCP can also run a single function from the command line without starting 
 scriptmcp --exec get_time
 # 10:07:39 pm
 
-scriptmcp --exec get_stock_price '{“symbol”:”AAPL”}'
+scriptmcp --exec get_stock_price '{"symbol":"AAPL"}'
 # AAPL: $266.86 (+3.37, +1.28%)
 ```
 
@@ -421,7 +421,7 @@ This is what `call_dynamic_process` uses under the hood.
 Use `--exec_out` instead of `--exec` to also write the result to `scheduled_task_out` (this is what scheduled tasks use):
 
 ```bash
-scriptmcp --exec_out get_stock_price '{“symbol”:”AAPL”}'
+scriptmcp --exec_out get_stock_price '{"symbol":"AAPL"}'
 # prints to stdout AND writes a timestamped file to scheduled_task_out
 ```
 
