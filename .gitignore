@@ -6,6 +6,9 @@ artifacts/
 .release/
 .mcp.json
 ScriptMcp.Server/
+ScriptMCP.Plugin/
+**/*.csproj.user
+**/Properties/PublishProfiles/
 commands/
 hooks/
 skills/

@@ -303,17 +303,17 @@ public class DynamicTools
     [Description("Deletes a registered dynamic function from the database by name")]
     public string DeleteDynamicFunction(
         [Description("The name of the dynamic function to delete")] string name,
-        [Description("Set to true to confirm deletion when other functions depend on this one")] bool confirm = false)
+        [Description("Set to true to force deletion when other functions depend on this one")] bool forced = false)
     {
         using var conn = new SqliteConnection(ConnectionString);
         conn.Open();
 
         var dependents = FindDependentsOf(conn, name);
 
-        if (dependents.Count > 0 && !confirm)
+        if (dependents.Count > 0 && !forced)
         {
-            return $"Cannot delete '{name}': the following function(s) depend on it: {string.Join(", ", dependents)}. " +
-                   $"Call again with confirm=true to delete anyway.";
+            return $"Cannot delete '{name}' because these functions depend on it: {string.Join(", ", dependents)}.\n" +
+                   "User confirmation is required before forced deletion.";
         }
 
         using var cmd = conn.CreateCommand();
@@ -399,11 +399,8 @@ public class DynamicTools
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(outputInstructions))
-        {
-            sb.AppendLine();
-            sb.AppendLine($"Output Instructions: {outputInstructions}");
-        }
+        sb.AppendLine();
+        sb.AppendLine($"Output Instructions: {(string.IsNullOrWhiteSpace(outputInstructions) ? "(none)" : outputInstructions)}");
 
         return sb.ToString().TrimEnd();
     }

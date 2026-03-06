@@ -76,7 +76,9 @@ public static class McpConstants
         "OUTPUT INSTRUCTIONS: After calling call_dynamic_function or call_dynamic_process, check the result for " +
         "a trailing '[Output Instructions]: ...' section. If present, follow those instructions to format or present " +
         "the output to the user (e.g. render as a table, summarize, highlight key values). " +
-        "Do NOT show the '[Output Instructions]' line itself to the user — only apply the instructions to the output above it. " +
+        "Do NOT show the '[Output Instructions]' line itself to the user — only apply the instructions to the output above it, " +
+        "except when the user is inspecting a function (via inspect_dynamic_function), in which case output instructions " +
+        "should be shown as part of the function's metadata. " +
         "If the output instructions say or imply that the function output should be returned exactly, return exactly the function output and nothing else. " +
         "INSPECTION TOOL: inspect_dynamic_function accepts the function name plus an optional fullInspection boolean. " +
         "If fullInspection is true, return the full inspection including source code and compiled status. " +
