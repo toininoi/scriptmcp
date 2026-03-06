@@ -31,6 +31,7 @@ public class DynamicFunction
     [JsonPropertyName("FunctionType")]        public string        FunctionType        { get; set; } = "code";
     [JsonPropertyName("Body")]                public string        Body                { get; set; } = "";
     [JsonPropertyName("OutputInstructions")]  public string?       OutputInstructions  { get; set; }
+    [JsonPropertyName("Dependencies")]        public string?       Dependencies        { get; set; } = "";
 }
 
 // ── DynamicTools ──────────────────────────────────────────────────────────────
@@ -145,6 +146,65 @@ public class DynamicTools
             alter.CommandText = "ALTER TABLE functions ADD COLUMN output_instructions TEXT";
             alter.ExecuteNonQuery();
         }
+
+        // Migrate: add dependencies column if missing (existing DBs)
+        bool hasDependencies = false;
+        using var pragma2 = conn.CreateCommand();
+        pragma2.CommandText = "PRAGMA table_info(functions)";
+        using (var reader2 = pragma2.ExecuteReader())
+        {
+            while (reader2.Read())
+            {
+                if (string.Equals(reader2.GetString(1), "dependencies", StringComparison.OrdinalIgnoreCase))
+                { hasDependencies = true; break; }
+            }
+        }
+        if (!hasDependencies)
+        {
+            using var alter2 = conn.CreateCommand();
+            alter2.CommandText = "ALTER TABLE functions ADD COLUMN dependencies TEXT";
+            alter2.ExecuteNonQuery();
+        }
+
+        // Backfill: scan existing functions that have never been scanned (dependencies IS NULL)
+        BackfillDependencies(conn);
+    }
+
+    private static void BackfillDependencies(SqliteConnection conn)
+    {
+        var knownNames = GetFunctionNames(conn);
+
+        using var scanCmd = conn.CreateCommand();
+        scanCmd.CommandText = "SELECT name, parameters, function_type, body FROM functions WHERE dependencies IS NULL";
+
+        var toUpdate = new List<(string name, string deps)>();
+        using (var scanReader = scanCmd.ExecuteReader())
+        {
+            while (scanReader.Read())
+            {
+                var func = new DynamicFunction
+                {
+                    Name = scanReader.GetString(0),
+                    Parameters = JsonSerializer.Deserialize<List<DynParam>>(scanReader.GetString(1), ReadOptions) ?? new List<DynParam>(),
+                    FunctionType = scanReader.GetString(2),
+                    Body = scanReader.GetString(3),
+                };
+                var deps = ExtractDependencies(func, knownNames);
+                toUpdate.Add((func.Name, DependenciesToCsv(deps)));
+            }
+        }
+
+        foreach (var (name, deps) in toUpdate)
+        {
+            using var upd = conn.CreateCommand();
+            upd.CommandText = "UPDATE functions SET dependencies = @deps WHERE name = @name";
+            upd.Parameters.AddWithValue("@deps", deps);
+            upd.Parameters.AddWithValue("@name", name);
+            upd.ExecuteNonQuery();
+        }
+
+        if (toUpdate.Count > 0)
+            Console.Error.WriteLine($"Backfilled dependencies for {toUpdate.Count} function(s).");
     }
 
     private void MigrateFromJson()
@@ -178,6 +238,8 @@ public class DynamicTools
             var funcs = JsonSerializer.Deserialize<List<DynamicFunction>>(json, ReadOptions);
             if (funcs == null || funcs.Count == 0) return;
 
+            var migrationNames = funcs.Select(f => f.Name).ToList();
+
             int migrated = 0;
             foreach (var func in funcs)
             {
@@ -193,6 +255,8 @@ public class DynamicTools
                     assemblyBytes = bytes;
                 }
 
+                var deps = ExtractDependencies(func, migrationNames);
+                func.Dependencies = DependenciesToCsv(deps);
                 InsertFunction(conn, func, assemblyBytes);
                 migrated++;
             }
@@ -238,19 +302,32 @@ public class DynamicTools
     [McpServerTool(Name = "delete_dynamic_function")]
     [Description("Deletes a registered dynamic function from the database by name")]
     public string DeleteDynamicFunction(
-        [Description("The name of the dynamic function to delete")] string name)
+        [Description("The name of the dynamic function to delete")] string name,
+        [Description("Set to true to confirm deletion when other functions depend on this one")] bool confirm = false)
     {
         using var conn = new SqliteConnection(ConnectionString);
         conn.Open();
+
+        var dependents = FindDependentsOf(conn, name);
+
+        if (dependents.Count > 0 && !confirm)
+        {
+            return $"Cannot delete '{name}': the following function(s) depend on it: {string.Join(", ", dependents)}. " +
+                   $"Call again with confirm=true to delete anyway.";
+        }
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM functions WHERE name = @name";
         cmd.Parameters.AddWithValue("@name", name);
 
         var rows = cmd.ExecuteNonQuery();
-        return rows > 0
-            ? $"Function '{name}' deleted successfully."
-            : $"Function '{name}' not found.";
+        if (rows == 0)
+            return $"Function '{name}' not found.";
+
+        var msg = $"Function '{name}' deleted successfully.";
+        if (dependents.Count > 0)
+            msg += $" Note: the following function(s) depended on it and may break: {string.Join(", ", dependents)}.";
+        return msg;
     }
 
     // ── Inspection ─────────────────────────────────────────────────────────────
@@ -265,7 +342,7 @@ public class DynamicTools
         conn.Open();
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT name, description, parameters, function_type, body, compiled_assembly, output_instructions FROM functions WHERE name = @name";
+        cmd.CommandText = "SELECT name, description, parameters, function_type, body, compiled_assembly, output_instructions, dependencies FROM functions WHERE name = @name";
         cmd.Parameters.AddWithValue("@name", name);
 
         using var reader = cmd.ExecuteReader();
@@ -279,6 +356,7 @@ public class DynamicTools
         var body                = reader.GetString(4);
         var hasAssembly         = !reader.IsDBNull(5);
         var outputInstructions  = reader.IsDBNull(6) ? null : reader.GetString(6);
+        var dependencies        = reader.IsDBNull(7) ? null : reader.GetString(7);
 
         var dynParams = JsonSerializer.Deserialize<List<DynParam>>(parametersJson, ReadOptions)
                         ?? new List<DynParam>();
@@ -302,6 +380,9 @@ public class DynamicTools
             foreach (var p in dynParams)
                 sb.AppendLine($"  - {p.Name} ({p.Type}): {p.Description}");
         }
+
+        sb.AppendLine();
+        sb.AppendLine($"Depends on:  {(string.IsNullOrWhiteSpace(dependencies) ? "(none)" : dependencies)}");
 
         if (fullInspection)
         {
@@ -376,6 +457,11 @@ public class DynamicTools
 
             using var conn = new SqliteConnection(ConnectionString);
             conn.Open();
+
+            var knownNames = GetFunctionNames(conn);
+            var deps = ExtractDependencies(func, knownNames);
+            func.Dependencies = DependenciesToCsv(deps);
+
             InsertFunction(conn, func, assemblyBytes);
 
             return $"{(IsInstructions(func) ? "Instructions" : "Code")} function '{func.Name}' registered successfully " +
@@ -389,11 +475,11 @@ public class DynamicTools
 
     [McpServerTool(Name = "update_dynamic_function")]
     [Description("Updates a single field on an existing dynamic function entry. " +
-                 "Supported fields: name, description, parameters, function_type, body, output_instructions. " +
+                 "Supported fields: name, description, parameters, function_type, body, output_instructions, dependencies. " +
                  "When the update affects execution, the function is recompiled automatically.")]
     public string UpdateDynamicFunction(
         [Description("The existing function name to update")] string name,
-        [Description("The field/column to update: name, description, parameters, function_type, body, or output_instructions")] string field,
+        [Description("The field/column to update: name, description, parameters, function_type, body, output_instructions, or dependencies")] string field,
         [Description("The new value for that field")] string value)
     {
         using var conn = new SqliteConnection(ConnectionString);
@@ -401,7 +487,7 @@ public class DynamicTools
 
         using var readCmd = conn.CreateCommand();
         readCmd.CommandText = @"
-            SELECT name, description, parameters, function_type, body, output_instructions
+            SELECT name, description, parameters, function_type, body, output_instructions, dependencies
             FROM functions
             WHERE name = @name";
         readCmd.Parameters.AddWithValue("@name", name);
@@ -418,6 +504,7 @@ public class DynamicTools
             FunctionType = reader.GetString(3),
             Body = reader.GetString(4),
             OutputInstructions = reader.IsDBNull(5) ? null : reader.GetString(5),
+            Dependencies = reader.IsDBNull(6) ? "" : reader.GetString(6),
         };
 
         reader.Close();
@@ -443,6 +530,14 @@ public class DynamicTools
             assemblyBytes = bytes;
         }
 
+        // Auto-compute dependencies unless the user is explicitly setting them
+        if (!string.Equals(normalizedField, "dependencies", StringComparison.OrdinalIgnoreCase))
+        {
+            var knownNames = GetFunctionNames(conn);
+            var deps = ExtractDependencies(func, knownNames);
+            func.Dependencies = DependenciesToCsv(deps);
+        }
+
         using var tx = conn.BeginTransaction();
         using var updateCmd = conn.CreateCommand();
         updateCmd.Transaction = tx;
@@ -454,7 +549,8 @@ public class DynamicTools
                 function_type = @function_type,
                 body = @body,
                 compiled_assembly = @compiled_assembly,
-                output_instructions = @output_instructions
+                output_instructions = @output_instructions,
+                dependencies = @dependencies
             WHERE name = @original_name";
         updateCmd.Parameters.AddWithValue("@new_name", func.Name);
         updateCmd.Parameters.AddWithValue("@description", func.Description);
@@ -463,6 +559,7 @@ public class DynamicTools
         updateCmd.Parameters.AddWithValue("@body", func.Body);
         updateCmd.Parameters.AddWithValue("@compiled_assembly", (object?)assemblyBytes ?? DBNull.Value);
         updateCmd.Parameters.AddWithValue("@output_instructions", (object?)func.OutputInstructions ?? DBNull.Value);
+        updateCmd.Parameters.AddWithValue("@dependencies", (object?)func.Dependencies ?? DBNull.Value);
         updateCmd.Parameters.AddWithValue("@original_name", name);
 
         try
@@ -474,15 +571,96 @@ public class DynamicTools
                 return $"Function '{name}' not found.";
             }
 
+            // On rename: auto-patch callers that reference the old name
+            var patchedCallers = new List<string>();
+            bool isRename = string.Equals(normalizedField, "name", StringComparison.OrdinalIgnoreCase)
+                            && !string.Equals(name, func.Name, StringComparison.OrdinalIgnoreCase);
+            if (isRename)
+            {
+                var dependents = FindDependentsOf(conn, name);
+                foreach (var depName in dependents)
+                {
+                    // Skip the function being renamed (already updated above)
+                    if (string.Equals(depName, name, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    using var readDep = conn.CreateCommand();
+                    readDep.Transaction = tx;
+                    readDep.CommandText = "SELECT name, description, parameters, function_type, body, output_instructions FROM functions WHERE name = @n";
+                    readDep.Parameters.AddWithValue("@n", depName);
+
+                    DynamicFunction? depFunc = null;
+                    using (var depReader = readDep.ExecuteReader())
+                    {
+                        if (!depReader.Read()) continue;
+                        depFunc = new DynamicFunction
+                        {
+                            Name = depReader.GetString(0),
+                            Description = depReader.GetString(1),
+                            Parameters = JsonSerializer.Deserialize<List<DynParam>>(depReader.GetString(2), ReadOptions) ?? new List<DynParam>(),
+                            FunctionType = depReader.GetString(3),
+                            Body = depReader.GetString(4),
+                            OutputInstructions = depReader.IsDBNull(5) ? null : depReader.GetString(5),
+                        };
+                    }
+
+                    // Replace old name with new name in Call/Proc patterns
+                    var patternOld = new Regex(
+                        @"(ScriptMCP\.\s*(?:Call|Proc)\s*\(\s*"")" + Regex.Escape(name) + @"("")",
+                        RegexOptions.IgnoreCase);
+                    var newBody = patternOld.Replace(depFunc.Body, "${1}" + func.Name + "${2}");
+                    if (newBody == depFunc.Body) continue;
+
+                    depFunc.Body = newBody;
+
+                    // Recompile the patched caller
+                    byte[]? depAsm = null;
+                    if (!IsInstructions(depFunc))
+                    {
+                        var (bytes2, errors2) = CompileFunction(depFunc);
+                        if (bytes2 == null)
+                        {
+                            // Can't patch this caller — skip but don't fail the rename
+                            Console.Error.WriteLine($"Rename auto-patch: failed to recompile '{depName}': {errors2}");
+                            continue;
+                        }
+                        depAsm = bytes2;
+                    }
+
+                    var depKnown = GetFunctionNames(conn);
+                    var depDeps = ExtractDependencies(depFunc, depKnown);
+                    depFunc.Dependencies = DependenciesToCsv(depDeps);
+
+                    using var patchCmd = conn.CreateCommand();
+                    patchCmd.Transaction = tx;
+                    patchCmd.CommandText = @"
+                        UPDATE functions
+                        SET body = @body,
+                            compiled_assembly = @asm,
+                            dependencies = @deps
+                        WHERE name = @n";
+                    patchCmd.Parameters.AddWithValue("@body", depFunc.Body);
+                    patchCmd.Parameters.AddWithValue("@asm", (object?)depAsm ?? DBNull.Value);
+                    patchCmd.Parameters.AddWithValue("@deps", (object?)depFunc.Dependencies ?? DBNull.Value);
+                    patchCmd.Parameters.AddWithValue("@n", depName);
+                    patchCmd.ExecuteNonQuery();
+
+                    patchedCallers.Add(depName);
+                }
+            }
+
             tx.Commit();
+
+            var msg = $"Function '{name}' updated successfully: {normalizedField}.";
+            if (patchedCallers.Count > 0)
+                msg += $" Auto-patched caller(s): {string.Join(", ", patchedCallers)}.";
+            return msg;
         }
         catch (SqliteException ex) when (string.Equals(normalizedField, "name", StringComparison.OrdinalIgnoreCase))
         {
             tx.Rollback();
             return $"Update failed: a function named '{func.Name}' already exists.";
         }
-
-        return $"Function '{name}' updated successfully: {normalizedField}.";
     }
 
     // ── Compilation ──────────────────────────────────────────────────────────
@@ -1667,8 +1845,9 @@ public class DynamicTools
             "body" => "body",
             "output_instructions" => "output_instructions",
             "outputinstructions" => "output_instructions",
+            "dependencies" => "dependencies",
             _ => throw new ArgumentException(
-                "field must be one of: name, description, parameters, function_type, body, output_instructions."),
+                "field must be one of: name, description, parameters, function_type, body, output_instructions, dependencies."),
         };
     }
 
@@ -1708,9 +1887,13 @@ public class DynamicTools
                 func.OutputInstructions = string.IsNullOrWhiteSpace(value) ? null : value;
                 break;
 
+            case "dependencies":
+                func.Dependencies = string.IsNullOrWhiteSpace(value) ? "" : value.Trim();
+                break;
+
             default:
                 throw new ArgumentException(
-                    "field must be one of: name, description, parameters, function_type, body, output_instructions.");
+                    "field must be one of: name, description, parameters, function_type, body, output_instructions, dependencies.");
         }
     }
 
@@ -1728,12 +1911,81 @@ public class DynamicTools
         }
     }
 
+    // ── Dependency tracking ────────────────────────────────────────────────────
+
+    private static List<string> GetFunctionNames(SqliteConnection conn)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT name FROM functions ORDER BY LENGTH(name) DESC";
+        var names = new List<string>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            names.Add(reader.GetString(0));
+        return names;
+    }
+
+    private static List<string> ExtractDependencies(DynamicFunction func, IReadOnlyList<string>? knownFunctions = null)
+    {
+        if (string.IsNullOrWhiteSpace(func.Body))
+            return new List<string>();
+
+        var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Scan body for known function names (works for both code and instructions)
+        if (knownFunctions != null)
+        {
+            var body = func.Body;
+            foreach (var name in knownFunctions)
+            {
+                // Skip self-reference
+                if (string.Equals(name, func.Name, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // Fast contains check before expensive regex
+                if (body.Contains(name, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Word boundary check to avoid partial matches (e.g. "get_time" in "get_time_string")
+                    if (Regex.IsMatch(body, @"(?<![A-Za-z0-9_-])" + Regex.Escape(name) + @"(?![A-Za-z0-9_-])", RegexOptions.IgnoreCase))
+                        found.Add(name);
+                }
+            }
+        }
+
+        return found
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string DependenciesToCsv(List<string> deps)
+        => deps.Count == 0 ? "" : string.Join(",", deps);
+
+    private static List<string> FindDependentsOf(SqliteConnection conn, string functionName)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            SELECT name FROM functions
+            WHERE dependencies = @exact
+               OR dependencies LIKE @start
+               OR dependencies LIKE @mid
+               OR dependencies LIKE @end";
+        cmd.Parameters.AddWithValue("@exact", functionName);
+        cmd.Parameters.AddWithValue("@start", functionName + ",%");
+        cmd.Parameters.AddWithValue("@mid", "%," + functionName + ",%");
+        cmd.Parameters.AddWithValue("@end", "%," + functionName);
+
+        var dependents = new List<string>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            dependents.Add(reader.GetString(0));
+        return dependents;
+    }
+
     private static void InsertFunction(SqliteConnection conn, DynamicFunction func, byte[]? assemblyBytes)
     {
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
-            INSERT OR REPLACE INTO functions (name, description, parameters, function_type, body, compiled_assembly, output_instructions)
-            VALUES (@name, @description, @parameters, @function_type, @body, @compiled_assembly, @output_instructions)";
+            INSERT OR REPLACE INTO functions (name, description, parameters, function_type, body, compiled_assembly, output_instructions, dependencies)
+            VALUES (@name, @description, @parameters, @function_type, @body, @compiled_assembly, @output_instructions, @dependencies)";
         cmd.Parameters.AddWithValue("@name", func.Name);
         cmd.Parameters.AddWithValue("@description", func.Description);
         cmd.Parameters.AddWithValue("@parameters", JsonSerializer.Serialize(func.Parameters));
@@ -1741,6 +1993,7 @@ public class DynamicTools
         cmd.Parameters.AddWithValue("@body", func.Body);
         cmd.Parameters.AddWithValue("@compiled_assembly", (object?)assemblyBytes ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@output_instructions", (object?)func.OutputInstructions ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@dependencies", (object?)func.Dependencies ?? DBNull.Value);
         cmd.ExecuteNonQuery();
     }
 }
