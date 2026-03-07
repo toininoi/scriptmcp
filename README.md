@@ -138,7 +138,7 @@ Agent:  [calls delete_scheduled_task → function_name="get_stock_price"]
 
 ### Prebuilt Console App
 
-ScriptMCP.Console releases now include two zip variants for each platform:
+ScriptMCP.Console releases include two zip variants for each platform:
 
 - Windows x64
 - Linux x64
