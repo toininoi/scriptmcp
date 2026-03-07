@@ -228,7 +228,8 @@ jobs:
 
       - name: Publish
         run: |
-          FOLDER="ScriptMCP ${{ needs.version.outputs.version }}"
+          SELF_CONTAINED_FOLDER="ScriptMCP ${{ needs.version.outputs.version }} ${{ matrix.rid }}"
+          FRAMEWORK_DEPENDENT_FOLDER="ScriptMCP ${{ needs.version.outputs.version }} ${{ matrix.rid }} framework-dependent"
 
           dotnet publish ScriptMCP.Console/ScriptMCP.Console.csproj \
             -c Release \
@@ -237,22 +238,36 @@ jobs:
             -p:PublishSingleFile=true \
             -p:IncludeNativeLibrariesForSelfExtract=true \
             -p:PublishTrimmed=false \
-            -o "artifacts/$FOLDER"
+            -o "artifacts/$SELF_CONTAINED_FOLDER"
 
-          # Ensure executable permission on non-Windows (AssemblyName already produces 'scriptmcp')
+          dotnet publish ScriptMCP.Console/ScriptMCP.Console.csproj \
+            -c Release \
+            -r ${{ matrix.rid }} \
+            --self-contained false \
+            -p:UseAppHost=true \
+            -p:PublishTrimmed=false \
+            -o "artifacts/$FRAMEWORK_DEPENDENT_FOLDER"
+
           if [[ "${{ matrix.rid }}" != win-* ]]; then
-            chmod +x "artifacts/$FOLDER/scriptmcp"
+            chmod +x "artifacts/$SELF_CONTAINED_FOLDER/scriptmcp"
+            chmod +x "artifacts/$FRAMEWORK_DEPENDENT_FOLDER/scriptmcp"
           fi
 
       - name: Package
         run: |
           cd artifacts
-          zip -r scriptmcp-${{ matrix.rid }}.zip "ScriptMCP ${{ needs.version.outputs.version }}"
+          zip -r scriptmcp-${{ matrix.rid }}.zip "ScriptMCP ${{ needs.version.outputs.version }} ${{ matrix.rid }}"
+          zip -r scriptmcp-${{ matrix.rid }}-framework-dependent.zip "ScriptMCP ${{ needs.version.outputs.version }} ${{ matrix.rid }} framework-dependent"
 
-      - name: Attest Build Provenance
+      - name: Attest Self-Contained Build Provenance
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: "artifacts/scriptmcp-${{ matrix.rid }}.zip"
+
+      - name: Attest Framework-Dependent Build Provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "artifacts/scriptmcp-${{ matrix.rid }}-framework-dependent.zip"
 
       - name: Upload Asset
         env:
@@ -260,5 +275,6 @@ jobs:
         run: |
           gh release upload "${{ needs.version.outputs.tag }}" \
             "artifacts/scriptmcp-${{ matrix.rid }}.zip" \
+            "artifacts/scriptmcp-${{ matrix.rid }}-framework-dependent.zip" \
             --repo "${{ github.repository }}" \
             --clobber
