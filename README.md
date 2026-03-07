@@ -138,12 +138,25 @@ Agent:  [calls delete_scheduled_task → function_name="get_stock_price"]
 
 ### Prebuilt Console App
 
-ScriptMCP.Console is published as a self-contained, single-file executable for:
+ScriptMCP.Console releases now include two zip variants for each platform:
 
 - Windows x64
 - Linux x64
 - macOS arm64 (Apple Silicon)
-1. Download the release zip for your OS and extract it to a location of your choice (e.g. `C:\Tools\ScriptMcp 1.1.1`).
+
+Release assets:
+
+- `scriptmcp-<rid>-self-contained.zip` — self-contained build. Use this if you do not want to rely on a preinstalled .NET runtime.
+- `scriptmcp-<rid>-framework-dependent.zip` — framework-dependent build. Use this if the target machine already has the required .NET runtime installed.
+
+Examples:
+
+- `scriptmcp-win-x64-self-contained.zip`
+- `scriptmcp-win-x64-framework-dependent.zip`
+- `scriptmcp-linux-x64-self-contained.zip`
+- `scriptmcp-osx-arm64-framework-dependent.zip`
+
+1. Download the zip for your OS and preferred deployment mode, then extract it to a location of your choice (e.g. `C:\Tools\ScriptMcp 1.1.1`).
 2. Add an MCP server config to your AI agent that targets the executable.
    - `type` must be `stdio`.
 
@@ -357,4 +370,6 @@ If you only use one agent, you only need the corresponding file. Both files cont
 
 ## Scripting Environment
 
-- **.NET 9 / C# 13** runtime — no .NET installation required, the executable is self-contained
+- **.NET 9 / C# 13** runtime
+- Self-contained release zips do not require a separate .NET installation
+- Framework-dependent release zips require a compatible .NET 9 runtime on the target machine
