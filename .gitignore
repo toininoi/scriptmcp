@@ -18,3 +18,4 @@ skills/
 !.github/
 !.github/**
 !.gitignore
+!global.json

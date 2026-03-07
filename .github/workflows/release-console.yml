@@ -223,6 +223,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
+          # Keep this aligned with global.json and the net9.0 target frameworks.
           dotnet-version: "9.0.x"
 
       - name: Publish
