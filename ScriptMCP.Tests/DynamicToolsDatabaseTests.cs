@@ -82,6 +82,69 @@ public sealed class DynamicToolsDatabaseTests
     }
 
     [Fact]
+    public void RegisterRejectsDirectCircularDependency()
+    {
+        var first = UniqueName("test_cycle_first");
+        var second = UniqueName("test_cycle_second");
+
+        var firstRegister = _tools.RegisterDynamicFunction(
+            name: first,
+            description: "Calls the second function.",
+            parameters: "[]",
+            body: $$"""return ScriptMCP.Call("{{second}}");""",
+            functionType: "code",
+            outputInstructions: "");
+        Assert.Contains("registered successfully", firstRegister, StringComparison.OrdinalIgnoreCase);
+
+        var secondRegister = _tools.RegisterDynamicFunction(
+            name: second,
+            description: "Calls the first function.",
+            parameters: "[]",
+            body: $$"""return ScriptMCP.Call("{{first}}");""",
+            functionType: "code",
+            outputInstructions: "");
+
+        Assert.Contains("Registration failed: direct circular dependency detected", secondRegister, StringComparison.Ordinal);
+        Assert.Contains($"{second} <-> {first}", secondRegister, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UpdateBodyRejectsDirectCircularDependency()
+    {
+        var first = UniqueName("test_cycle_update_first");
+        var second = UniqueName("test_cycle_update_second");
+
+        var firstRegister = _tools.RegisterDynamicFunction(
+            name: first,
+            description: "Calls the second function.",
+            parameters: "[]",
+            body: $$"""return ScriptMCP.Call("{{second}}");""",
+            functionType: "code",
+            outputInstructions: "");
+        Assert.Contains("registered successfully", firstRegister, StringComparison.OrdinalIgnoreCase);
+
+        var secondRegister = _tools.RegisterDynamicFunction(
+            name: second,
+            description: "Does not call anything.",
+            parameters: "[]",
+            body: """return "ok";""",
+            functionType: "code",
+            outputInstructions: "");
+        Assert.Contains("registered successfully", secondRegister, StringComparison.OrdinalIgnoreCase);
+
+        var update = _tools.UpdateDynamicFunction(
+            second,
+            "body",
+            $$"""return ScriptMCP.Call("{{first}}");""");
+
+        Assert.Contains("Update failed: direct circular dependency detected", update, StringComparison.Ordinal);
+        Assert.Contains($"{second} <-> {first}", update, StringComparison.Ordinal);
+
+        var inspect = _tools.InspectDynamicFunction(second);
+        Assert.Contains("Depends on:  (none)", inspect, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void UpdateWithInvalidFieldReturnsError()
     {
         var name = UniqueName("test_update_error");

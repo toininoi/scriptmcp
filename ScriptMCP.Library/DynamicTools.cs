@@ -488,6 +488,12 @@ public class DynamicTools
 
             var knownNames = GetFunctionNames(conn);
             var deps = ExtractDependencies(func, knownNames);
+            var mutualDeps = FindDirectMutualDependencies(conn, func.Name, deps);
+            if (mutualDeps.Count > 0)
+            {
+                return $"Registration failed: direct circular dependency detected for '{func.Name}': " +
+                       $"{string.Join(", ", mutualDeps.Select(d => $"{func.Name} <-> {d}"))}.";
+            }
             func.Dependencies = DependenciesToCsv(deps);
 
             InsertFunction(conn, func, assemblyBytes);
@@ -563,6 +569,15 @@ public class DynamicTools
         {
             var knownNames = GetFunctionNames(conn);
             var deps = ExtractDependencies(func, knownNames);
+            if (string.Equals(normalizedField, "body", StringComparison.OrdinalIgnoreCase))
+            {
+                var mutualDeps = FindDirectMutualDependencies(conn, func.Name, deps);
+                if (mutualDeps.Count > 0)
+                {
+                    return $"Update failed: direct circular dependency detected for '{func.Name}': " +
+                           $"{string.Join(", ", mutualDeps.Select(d => $"{func.Name} <-> {d}"))}.";
+                }
+            }
             func.Dependencies = DependenciesToCsv(deps);
         }
 
@@ -684,7 +699,7 @@ public class DynamicTools
                 msg += $" Auto-patched caller(s): {string.Join(", ", patchedCallers)}.";
             return msg;
         }
-        catch (SqliteException ex) when (string.Equals(normalizedField, "name", StringComparison.OrdinalIgnoreCase))
+        catch (SqliteException) when (string.Equals(normalizedField, "name", StringComparison.OrdinalIgnoreCase))
         {
             tx.Rollback();
             return $"Update failed: a function named '{func.Name}' already exists.";
@@ -2041,6 +2056,39 @@ public class DynamicTools
 
     private static string DependenciesToCsv(List<string> deps)
         => deps.Count == 0 ? "" : string.Join(",", deps);
+
+    private static List<string> FindDirectMutualDependencies(
+        SqliteConnection conn,
+        string functionName,
+        IReadOnlyCollection<string> dependencies)
+    {
+        if (string.IsNullOrWhiteSpace(functionName) || dependencies.Count == 0)
+            return new List<string>();
+
+        return dependencies
+            .Where(dep => FunctionBodyReferencesName(conn, dep, functionName))
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static bool FunctionBodyReferencesName(SqliteConnection conn, string sourceFunctionName, string referencedFunctionName)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT body FROM functions WHERE name = @name";
+        cmd.Parameters.AddWithValue("@name", sourceFunctionName);
+
+        var body = cmd.ExecuteScalar() as string;
+        if (string.IsNullOrWhiteSpace(body) || string.IsNullOrWhiteSpace(referencedFunctionName))
+            return false;
+
+        if (!body.Contains(referencedFunctionName, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return Regex.IsMatch(
+            body,
+            @"(?<![A-Za-z0-9_-])" + Regex.Escape(referencedFunctionName) + @"(?![A-Za-z0-9_-])",
+            RegexOptions.IgnoreCase);
+    }
 
     private static List<string> FindDependentsOf(SqliteConnection conn, string functionName)
     {

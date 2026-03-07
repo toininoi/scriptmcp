@@ -68,14 +68,87 @@ jobs:
           git tag "$next_tag"
           git push origin "$next_tag"
 
-  create-release:
+  cleanup-old-release-state:
     runs-on: ubuntu-latest
     needs: version
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Delete Older Releases Tags And Attestations
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_TAG: ${{ needs.version.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+          REPOSITORY_OWNER_TYPE: ${{ github.event.repository.owner.type }}
+        run: |
+          set -euo pipefail
+
+          case "$REPOSITORY_OWNER_TYPE" in
+            Organization)
+              attestation_base="orgs/$REPOSITORY_OWNER/attestations"
+              ;;
+            User)
+              attestation_base="users/$REPOSITORY_OWNER/attestations"
+              ;;
+            *)
+              echo "Unsupported repository owner type: $REPOSITORY_OWNER_TYPE" >&2
+              exit 1
+              ;;
+          esac
+
+          cleanup_release_state() {
+            local tag="$1"
+
+            if gh release view "$tag" --repo "$REPOSITORY" >/dev/null 2>&1; then
+              verify_json="$(gh release verify "$tag" --repo "$REPOSITORY" --format json 2>/dev/null || true)"
+              if [[ -n "$verify_json" ]]; then
+                mapfile -t digests < <(
+                  printf '%s' "$verify_json" |
+                    jq -r '.. | objects | .digest? // empty' |
+                    grep '^sha256:' |
+                    sort -u
+                )
+
+                for digest in "${digests[@]}"; do
+                  encoded_digest="${digest//:/%3A}"
+                  gh api \
+                    --method DELETE \
+                    -H "Accept: application/vnd.github+json" \
+                    -H "X-GitHub-Api-Version: 2022-11-28" \
+                    "/$attestation_base/digest/$encoded_digest" >/dev/null || true
+                done
+              fi
+
+              gh release delete "$tag" --repo "$REPOSITORY" -y
+            fi
+
+            git push origin ":refs/tags/$tag" >/dev/null 2>&1 || true
+            git tag -d "$tag" >/dev/null 2>&1 || true
+          }
+
+          mapfile -t old_tags < <(git tag --list 'scriptmcp-v*' | grep -vx "$CURRENT_TAG" || true)
+          for tag in "${old_tags[@]}"; do
+            [[ -n "$tag" ]] || continue
+            cleanup_release_state "$tag"
+          done
+
+  create-release:
+    runs-on: ubuntu-latest
+    needs: [version, cleanup-old-release-state]
     steps:
       - name: Create Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if gh release view "${{ needs.version.outputs.tag }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            exit 0
+          fi
+
           gh release create "${{ needs.version.outputs.tag }}" \
             --repo "${{ github.repository }}" \
             --title "ScriptMCP ${{ needs.version.outputs.version }}" \
