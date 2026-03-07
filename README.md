@@ -6,7 +6,7 @@ A dynamic function runtime for AI agents via the Model Context Protocol (MCP). S
 
 ## Overview
 
-ScriptMCP exposes 15 MCP tools that together form a self-extending toolbox:
+ScriptMCP exposes 18 MCP tools that together form a self-extending toolbox:
 
 | Tool                        | Description                                                     |
 | --------------------------- | --------------------------------------------------------------- |
@@ -19,6 +19,9 @@ ScriptMCP exposes 15 MCP tools that together form a self-extending toolbox:
 | `compile_dynamic_function`  | Compile a code function from its stored source                  |
 | `delete_dynamic_function`   | Remove a function                                               |
 | `save_dynamic_functions`    | Legacy no-op (functions auto-persist to SQLite)                 |
+| `get_database`             | Show the currently active ScriptMCP database path               |
+| `set_database`             | Switch to a different ScriptMCP database at runtime             |
+| `delete_database`          | Delete a non-default ScriptMCP database                         |
 | `create_scheduled_task`     | Schedule a function to run at a recurring interval              |
 | `read_scheduled_task`       | Read the latest scheduled-task output for a function            |
 | `delete_scheduled_task`     | Delete a scheduled task for a function                          |
@@ -32,9 +35,10 @@ ScriptMCP exposes 15 MCP tools that together form a self-extending toolbox:
 2. **Register** — the AI agent writes and registers C# functions or plain English instructions on your behalf (or you provide explicit code)
 3. **Persist** — functions are **compiled via Roslyn** on registration and **stored in SQLite** — they survive server restarts
 4. **Execute** — functions are invoked automatically by the AI via `call_dynamic_function` (in-process) or `call_dynamic_process` (out-of-process)
-5. **Schedule** — functions can be scheduled to run at recurring intervals via `create_scheduled_task`
-6. **Update** — existing functions can be revised in place with `update_dynamic_function` when only one stored field needs to change
-7. **Delete** — functions can be removed with `delete_dynamic_function` when no longer needed
+5. **Switch Databases** — the active SQLite database can be inspected or changed at runtime via `get_database` and `set_database`
+6. **Schedule** — functions can be scheduled to run at recurring intervals via `create_scheduled_task`
+7. **Update** — existing functions can be revised in place with `update_dynamic_function` when only one stored field needs to change
+8. **Delete** — functions or non-default databases can be removed when no longer needed
 
 ### Function Types
 
@@ -52,6 +56,16 @@ ScriptMCP exposes 15 MCP tools that together form a self-extending toolbox:
 ### Scheduled Tasks
 
 `create_scheduled_task` sets up a recurring job that runs a dynamic function at a fixed interval. On Windows it uses Task Scheduler; on Linux/macOS it uses cron.
+
+### Database Selection
+
+ScriptMCP stores functions in a SQLite database and can switch databases during a live session:
+
+- `get_database` returns the currently active database path
+- `set_database` switches to another database path or database name
+- `delete_database` first validates the target database and returns a yes-or-no confirmation prompt before deleting a non-default database
+
+If `set_database` receives only a file name such as `work.db`, it resolves that name inside the default ScriptMCP data directory for the current OS. If the target database does not exist yet, the caller must confirm creation by passing `create=true`.
 
 ### Output Instructions
 
@@ -132,6 +146,25 @@ Agent:  [calls delete_scheduled_task → interval_minutes=5]
 You:    delete the stock price task
 Agent:  [calls delete_scheduled_task → function_name="get_stock_price"]
         Scheduled task deleted.
+```
+
+### Switching databases at runtime
+
+```
+You:    which ScriptMCP database is active?
+Agent:  [calls get_database]
+        C:\Users\you\AppData\Local\ScriptMCP\scriptmcp.db
+
+You:    switch to sandbox.db
+Agent:  [calls set_database → path="sandbox.db"]
+        Database does not exist...
+
+You:    yes, create it
+Agent:  [calls set_database → path="sandbox.db", create=true]
+        Switched database from:
+          C:\Users\you\AppData\Local\ScriptMCP\scriptmcp.db
+        to:
+          C:\Users\you\AppData\Local\ScriptMCP\sandbox.db
 ```
 
 ## Install
@@ -303,6 +336,8 @@ scriptmcp --db test.db --exec get_time
 ```
 
 `--db` applies in both MCP server mode and CLI execution modes (`--exec`, `--exec-out`, `--exec-out-append`). If you pass a relative path (for example, `--db test.db`), it is resolved under the default ScriptMCP data directory for your OS.
+
+At runtime, agents can inspect or change the active database without restarting the server by calling `get_database` and `set_database`. Deletion of a non-default database is handled through `delete_database`, which first validates the target and returns a yes-or-no confirmation prompt.
 
 
 ### Data Directory

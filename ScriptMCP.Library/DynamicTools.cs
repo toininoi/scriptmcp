@@ -66,28 +66,15 @@ public class DynamicTools
 
     private static string ConnectionString => $"Data Source={SavePath}";
 
-    private static string? TryGetDbArgumentValueFromCurrentProcess()
-    {
-        return McpConstants.TryGetDatabasePathFromArgs(Environment.GetCommandLineArgs());
-    }
-
     private static void AppendDatabaseArgumentFromCurrentProcess(System.Diagnostics.ProcessStartInfo psi)
     {
-        var dbPath = TryGetDbArgumentValueFromCurrentProcess();
-        if (string.IsNullOrWhiteSpace(dbPath))
-            return;
-
         psi.ArgumentList.Add(McpConstants.DatabaseArgumentName);
-        psi.ArgumentList.Add(dbPath);
+        psi.ArgumentList.Add(SavePath);
     }
 
     private static string BuildDatabaseArgumentForShell()
     {
-        var dbPath = TryGetDbArgumentValueFromCurrentProcess();
-        if (string.IsNullOrWhiteSpace(dbPath))
-            return string.Empty;
-
-        return $" {McpConstants.DatabaseArgumentName} \"{dbPath.Replace("\"", "\\\"")}\"";
+        return $" {McpConstants.DatabaseArgumentName} \"{SavePath.Replace("\"", "\\\"")}\"";
     }
 
     public DynamicTools() => Initialize();
@@ -1730,30 +1717,9 @@ public class DynamicTools
 
         public static class ScriptMCP
         {
-            private static string? TryGetDbArgFromCurrentProcess()
+            private static string? GetDbPath()
             {
-                var args = Environment.GetCommandLineArgs();
-                if (args == null || args.Length == 0)
-                    return null;
-
-                for (int i = 0; i < args.Length; i++)
-                {
-                    var arg = args[i];
-                    if (string.Equals(arg, "--db", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (i + 1 < args.Length && !string.IsNullOrWhiteSpace(args[i + 1]))
-                            return args[i + 1];
-                        return null;
-                    }
-
-                    if (arg.StartsWith("--db=", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var value = arg.Substring("--db=".Length);
-                        return string.IsNullOrWhiteSpace(value) ? null : value;
-                    }
-                }
-
-                return null;
+                return Environment.GetEnvironmentVariable("SCRIPTMCP_DB");
             }
 
             private static ProcessStartInfo CreateStartInfo(string functionName, string arguments)
@@ -1772,11 +1738,11 @@ public class DynamicTools
                     StandardErrorEncoding = System.Text.Encoding.UTF8,
                     CreateNoWindow = true,
                 };
-                var dbArg = TryGetDbArgFromCurrentProcess();
-                if (!string.IsNullOrWhiteSpace(dbArg))
+                var dbPath = GetDbPath();
+                if (!string.IsNullOrWhiteSpace(dbPath))
                 {
                     psi.ArgumentList.Add("--db");
-                    psi.ArgumentList.Add(dbArg);
+                    psi.ArgumentList.Add(dbPath);
                 }
                 psi.ArgumentList.Add("--exec");
                 psi.ArgumentList.Add(functionName);
@@ -1873,6 +1839,7 @@ public class DynamicTools
             var runMethod = scriptType.GetMethod("Run", BindingFlags.Public | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Compiled assembly missing Run method.");
 
+            Environment.SetEnvironmentVariable("SCRIPTMCP_DB", SavePath);
             var result = (string?)runMethod.Invoke(null, new object[] { args });
 
             return result ?? "(no output)";
@@ -2126,5 +2093,128 @@ public class DynamicTools
         cmd.Parameters.AddWithValue("@output_instructions", (object?)func.OutputInstructions ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@dependencies", (object?)func.Dependencies ?? DBNull.Value);
         cmd.ExecuteNonQuery();
+    }
+
+    // ── Database Switching ────────────────────────────────────────────────────
+
+    private static readonly string DefaultDatabasePath = Path.Combine(
+        McpConstants.GetDefaultDatabaseDirectory(),
+        McpConstants.DefaultDatabaseFileName);
+
+    [McpServerTool(Name = "get_database")]
+    [Description("Returns the path of the currently active ScriptMCP database.")]
+    public string GetDatabase()
+    {
+        return SavePath;
+    }
+
+    [McpServerTool(Name = "set_database")]
+    [Description("Sets the active ScriptMCP database at runtime. Similar to the --db CLI argument but can be used during a session. If no path is provided, switches to the default database. If only a name is provided (no directory separators), it is resolved relative to the default database directory. If the database does not exist, the user must confirm creation by setting create=true.")]
+    public string SetDatabase(
+        [Description("Path to the SQLite database file, a database name (resolved relative to the default directory), or omit to switch to the default database")] string path = "",
+        [Description("Set to true to confirm creating a new database when the file does not exist")] bool create = false)
+    {
+        string resolvedPath;
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            resolvedPath = DefaultDatabasePath;
+        }
+        else
+        {
+            var trimmed = path.Trim();
+
+            // If it's just a name with no directory separators, resolve relative to the default directory
+            if (!trimmed.Contains(Path.DirectorySeparatorChar) &&
+                !trimmed.Contains(Path.AltDirectorySeparatorChar))
+            {
+                // Append .db extension if not already present
+                if (!trimmed.EndsWith(".db", StringComparison.OrdinalIgnoreCase))
+                    trimmed += ".db";
+
+                resolvedPath = Path.Combine(McpConstants.GetDefaultDatabaseDirectory(), trimmed);
+            }
+            else
+            {
+                resolvedPath = Path.GetFullPath(trimmed);
+            }
+        }
+
+        var previousPath = SavePath;
+
+        if (string.Equals(resolvedPath, previousPath, StringComparison.OrdinalIgnoreCase))
+            return $"Already using database: {resolvedPath}";
+
+        if (!File.Exists(resolvedPath) && !create)
+            return $"Database does not exist:\n  {resolvedPath}\nAsk the user if they want to create it. If yes, call set_database again with create=true.";
+
+        SavePath = resolvedPath;
+        EnsureDatabase();
+
+        return $"Switched database from:\n  {previousPath}\nto:\n  {resolvedPath}";
+    }
+
+    [McpServerTool(Name = "delete_database")]
+    [Description("Deletes a ScriptMCP database file. Call with confirm=false first to validate the path and get a yes-or-no confirmation prompt. The default database cannot be deleted. If the target database is currently active, it will be switched to the default database first.")]
+    public string DeleteDatabase(
+        [Description("Path to the SQLite database file, or a database name (resolved relative to the default directory)")] string path,
+        [Description("Must be set to true to confirm deletion. If false, returns a confirmation prompt instead.")] bool confirm = false)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return "Error: path cannot be empty.";
+
+        var trimmed = path.Trim();
+
+        string resolvedPath;
+        if (!trimmed.Contains(Path.DirectorySeparatorChar) &&
+            !trimmed.Contains(Path.AltDirectorySeparatorChar))
+        {
+            if (!trimmed.EndsWith(".db", StringComparison.OrdinalIgnoreCase))
+                trimmed += ".db";
+            resolvedPath = Path.Combine(McpConstants.GetDefaultDatabaseDirectory(), trimmed);
+        }
+        else
+        {
+            resolvedPath = Path.GetFullPath(trimmed);
+        }
+
+        if (string.Equals(resolvedPath, DefaultDatabasePath, StringComparison.OrdinalIgnoreCase))
+            return "Error: the default database cannot be deleted.";
+
+        if (!File.Exists(resolvedPath))
+            return $"Error: database not found: {resolvedPath}";
+
+        if (!confirm)
+            return $"Delete this database?\n  {resolvedPath}\nSay yes or no.";
+
+        // If deleting the currently active database, switch to default first
+        if (string.Equals(resolvedPath, SavePath, StringComparison.OrdinalIgnoreCase))
+        {
+            SavePath = DefaultDatabasePath;
+            EnsureDatabase();
+        }
+
+        SqliteConnection.ClearAllPools();
+        DeleteDatabaseFileWithRetry(resolvedPath);
+        return $"Deleted database: {resolvedPath}\nActive database: {SavePath}";
+    }
+
+    private static void DeleteDatabaseFileWithRetry(string path)
+    {
+        const int maxAttempts = 5;
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            try
+            {
+                File.Delete(path);
+                return;
+            }
+            catch (IOException) when (attempt < maxAttempts - 1)
+            {
+                Thread.Sleep(50);
+                SqliteConnection.ClearAllPools();
+            }
+        }
     }
 }

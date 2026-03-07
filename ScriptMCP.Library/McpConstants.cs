@@ -5,7 +5,7 @@ public static class McpConstants
     public const string DatabaseArgumentName = "--db";
     public const string DefaultDatabaseFileName = "scriptmcp.db";
 
-    private static string GetDefaultDatabaseDirectory()
+    internal static string GetDefaultDatabaseDirectory()
     {
         return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -94,6 +94,17 @@ public static class McpConstants
         "If fullInspection is true, return the full inspection including source code and compiled status. " +
         "If fullInspection is false or omitted, return everything except source code and compiled status. " +
         "NATIVE TOOLS: In addition to the dynamic function tools above, ScriptMCP provides these built-in native tools: " +
+        "- get_database: Returns the path of the currently active ScriptMCP database. " +
+        "Use this when the user asks which database is active or where functions are currently being stored. " +
+        "Parameter: none. " +
+        "- set_database: Switches the active ScriptMCP database at runtime. " +
+        "Parameters: path (string, optional), create (bool, default false). " +
+        "If path is omitted, it switches to the default database. " +
+        "If path is only a file name with no directory separators, resolve it relative to the default ScriptMCP data directory. " +
+        "If the target database does not exist, do not create it implicitly — ask the user for confirmation and call set_database again with create=true only after they confirm. " +
+        "- delete_database: Deletes a ScriptMCP database file. " +
+        "Parameters: path (string, required), confirm (bool, default false). " +
+        "First call it with confirm=false so it can verify that the database exists, reject attempts to delete the default database, and return a yes-or-no confirmation prompt. Only call it again with confirm=true after the user says yes. If the target database is currently active, ScriptMCP will switch to the default database first. " +
         "- read_scheduled_task: Reads the most recent scheduled-task output file for a specific function from the output directory beside the database. " +
         "If <function>.txt exists from append mode, that file is returned; otherwise the latest timestamped file is returned. " +
         "Parameter: function_name (string, required). " +
@@ -115,7 +126,7 @@ public static class McpConstants
         "On Windows, disables ScriptMCP\\<function> (<interval>m). On Linux/macOS, cron entries are either present or absent, so this reports that deletion is required instead. " +
         "Parameters: function_name (string, required), interval_minutes (int, default 1). " +
         "These are native MCP tools — they do not appear in list_dynamic_functions and do not need inspection before use. " +
-        "Call them directly when the user asks to schedule a function, list tasks, start or stop a task, delete a scheduled task, or read previous execution output.";
+        "Call them directly when the user asks to inspect the active database, switch databases, create a database via set_database, delete a database, schedule a function, list tasks, start or stop a task, delete a scheduled task, or read previous execution output.";
 
     public static string? TryGetDatabasePathFromArgs(string[]? args)
     {

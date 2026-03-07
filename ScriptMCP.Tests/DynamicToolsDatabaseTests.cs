@@ -212,7 +212,203 @@ public sealed class DynamicToolsDatabaseTests
         Assert.Equal("(empty)", result);
     }
 
+    [Fact]
+    public void GetDatabaseReturnsCurrentSavePath()
+    {
+        Assert.Equal(DynamicTools.SavePath, _tools.GetDatabase());
+    }
+
+    [Fact]
+    public void SetDatabaseRejectsCreatingMissingDatabaseWithoutConfirmation()
+    {
+        var originalPath = DynamicTools.SavePath;
+        var databaseName = UniqueName("missing-db");
+        var expectedPath = GetDefaultDatabasePath(databaseName);
+
+        try
+        {
+            if (File.Exists(expectedPath))
+                File.Delete(expectedPath);
+
+            var result = _tools.SetDatabase(databaseName);
+
+            Assert.Contains("Database does not exist:", result, StringComparison.Ordinal);
+            Assert.Contains(expectedPath, result, StringComparison.Ordinal);
+            Assert.Equal(originalPath, DynamicTools.SavePath);
+            Assert.False(File.Exists(expectedPath));
+        }
+        finally
+        {
+            RestoreAndDeleteDatabase(originalPath, expectedPath);
+        }
+    }
+
+    [Fact]
+    public void SetDatabaseCreatesAndSwitchesToNamedDatabaseWhenConfirmed()
+    {
+        var originalPath = DynamicTools.SavePath;
+        var databaseName = UniqueName("created-db");
+        var expectedPath = GetDefaultDatabasePath(databaseName);
+
+        try
+        {
+            if (File.Exists(expectedPath))
+                File.Delete(expectedPath);
+
+            var result = _tools.SetDatabase(databaseName, create: true);
+
+            Assert.Contains("Switched database from:", result, StringComparison.Ordinal);
+            Assert.Contains(expectedPath, result, StringComparison.Ordinal);
+            Assert.Equal(expectedPath, DynamicTools.SavePath);
+            Assert.True(File.Exists(expectedPath));
+            Assert.Equal(expectedPath, _tools.GetDatabase());
+        }
+        finally
+        {
+            RestoreAndDeleteDatabase(originalPath, expectedPath);
+        }
+    }
+
+    [Fact]
+    public void DeleteDatabaseRequiresConfirmationBeforeDeleting()
+    {
+        var originalPath = DynamicTools.SavePath;
+        var databaseName = UniqueName("delete-db");
+        var databasePath = GetDefaultDatabasePath(databaseName);
+
+        try
+        {
+            if (File.Exists(databasePath))
+                File.Delete(databasePath);
+
+            Assert.Contains("Switched database from:", _tools.SetDatabase(databaseName, create: true), StringComparison.Ordinal);
+            Assert.True(File.Exists(databasePath));
+
+            var result = _tools.DeleteDatabase(databaseName);
+
+            Assert.Contains("Delete this database?", result, StringComparison.Ordinal);
+            Assert.Contains(databasePath, result, StringComparison.Ordinal);
+            Assert.Contains("Say yes or no.", result, StringComparison.Ordinal);
+            Assert.True(File.Exists(databasePath));
+            Assert.Equal(databasePath, DynamicTools.SavePath);
+        }
+        finally
+        {
+            RestoreAndDeleteDatabase(originalPath, databasePath);
+        }
+    }
+
+    [Fact]
+    public void DeleteDatabaseDeletesActiveDatabaseAndSwitchesToDefault()
+    {
+        var originalPath = DynamicTools.SavePath;
+        var databaseName = UniqueName("active-delete-db");
+        var databasePath = GetDefaultDatabasePath(databaseName);
+        var defaultPath = GetDefaultDatabasePath(McpConstants.DefaultDatabaseFileName);
+
+        try
+        {
+            if (File.Exists(databasePath))
+                File.Delete(databasePath);
+
+            Assert.Contains("Switched database from:", _tools.SetDatabase(databaseName, create: true), StringComparison.Ordinal);
+            Assert.Equal(databasePath, DynamicTools.SavePath);
+
+            var result = _tools.DeleteDatabase(databaseName, confirm: true);
+
+            Assert.Contains($"Deleted database: {databasePath}", result, StringComparison.Ordinal);
+            Assert.Contains($"Active database: {defaultPath}", result, StringComparison.Ordinal);
+            Assert.False(File.Exists(databasePath));
+            Assert.Equal(defaultPath, DynamicTools.SavePath);
+            Assert.True(File.Exists(defaultPath));
+        }
+        finally
+        {
+            RestoreAndDeleteDatabase(originalPath, databasePath);
+        }
+    }
+
+    [Fact]
+    public void DeleteDatabaseRejectsDeletingDefaultDatabase()
+    {
+        var defaultPath = GetDefaultDatabasePath(McpConstants.DefaultDatabaseFileName);
+        var originalPath = DynamicTools.SavePath;
+
+        var result = _tools.DeleteDatabase(defaultPath);
+
+        Assert.Equal("Error: the default database cannot be deleted.", result);
+        Assert.Equal(originalPath, DynamicTools.SavePath);
+    }
+
+    [Fact]
+    public void DeleteDatabaseChecksExistenceBeforePromptingForConfirmation()
+    {
+        var originalPath = DynamicTools.SavePath;
+        var databaseName = UniqueName("missing-delete-db");
+        var databasePath = GetDefaultDatabasePath(databaseName);
+
+        try
+        {
+            if (File.Exists(databasePath))
+                File.Delete(databasePath);
+
+            var result = _tools.DeleteDatabase(databaseName);
+
+            Assert.Equal($"Error: database not found: {databasePath}", result);
+            Assert.DoesNotContain("Say yes or no.", result, StringComparison.Ordinal);
+            Assert.Equal(originalPath, DynamicTools.SavePath);
+        }
+        finally
+        {
+            RestoreAndDeleteDatabase(originalPath, databasePath);
+        }
+    }
+
     private static string UniqueName(string prefix) => $"{prefix}_{Guid.NewGuid():N}";
+
+    private static string GetDefaultDatabasePath(string pathOrName)
+    {
+        var trimmed = pathOrName.Trim();
+        if (!trimmed.Contains(Path.DirectorySeparatorChar) &&
+            !trimmed.Contains(Path.AltDirectorySeparatorChar))
+        {
+            if (!trimmed.EndsWith(".db", StringComparison.OrdinalIgnoreCase))
+                trimmed += ".db";
+            return Path.GetFullPath(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "ScriptMCP",
+                trimmed));
+        }
+
+        return Path.GetFullPath(trimmed);
+    }
+
+    private void RestoreAndDeleteDatabase(string originalPath, string databasePath)
+    {
+        if (!string.Equals(DynamicTools.SavePath, originalPath, StringComparison.OrdinalIgnoreCase))
+            _tools.SetDatabase(originalPath);
+
+        DynamicTools.SavePath = originalPath;
+
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
+        if (!File.Exists(databasePath))
+            return;
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                File.Delete(databasePath);
+                return;
+            }
+            catch (IOException) when (attempt < 4)
+            {
+                Thread.Sleep(50);
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            }
+        }
+    }
 
     private void ResetOutputDirectory()
     {
