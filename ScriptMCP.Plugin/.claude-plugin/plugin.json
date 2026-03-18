@@ -1,7 +1,7 @@
 {
   "name": "scriptmcp-plugin",
   "version": "1.1.4",
-  "description": "A just-in-time scripting engine for creating and executing dynamic functions on the fly.",
+  "description": "Slash commands, skills, and hooks for ScriptMCP. Requires the ScriptMCP extension to be installed.",
   "author": {
     "name": "Bill Sithiro",
     "email": "sithiro@gmail.com",
@@ -10,11 +10,5 @@
   "repository": "https://github.com/sithiro/ScriptMCP",
   "homepage": "https://github.com/sithiro/ScriptMCP",
   "license": "Apache-2.0",
-  "keywords": ["scripting", "automation", "jit", "mcp", "dynamic-functions", ".net", "csharp"],
-  "mcpServers": {
-    "scriptmcp": {
-      "type": "stdio",
-      "command": "${CLAUDE_PLUGIN_ROOT}/server/scriptmcp.exe"
-    }
-  }
+  "keywords": ["scripting", "automation", "jit", "mcp", "dynamic-functions", ".net", "csharp"]
 }
