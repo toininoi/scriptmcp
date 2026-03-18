@@ -7,12 +7,12 @@ artifacts/
 .mcp.json
 ScriptMcp.Server/
 ScriptMCP.Extension/server/
-ScriptMCP.Plugin/.claude-plugin/server/
+ScriptMCP.Plugin/server/
 **/*.csproj.user
 **/Properties/PublishProfiles/
-commands/
-hooks/
-skills/
+/commands/
+/hooks/
+/skills/
 *.binlog
 .*
 **/.*
