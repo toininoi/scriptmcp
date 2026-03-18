@@ -167,6 +167,18 @@ Agent:  [calls set_database → path="sandbox.db", create=true]
           C:\Users\you\AppData\Local\ScriptMCP\sandbox.db
 ```
 
+## Repository Structure
+
+| Folder | Purpose |
+| ------ | ------- |
+| `ScriptMCP.Console` | The MCP server entry point — hosts the stdio transport and wires up all tools |
+| `ScriptMCP.Library` | Core library containing dynamic function management, compilation, and tool definitions |
+| `ScriptMCP.Extension` | Packaging for Claude Desktop — contains `manifest.json` and a `server/` folder for the binary |
+| `ScriptMCP.Plugin` | Claude Code plugin — slash commands, hooks, skills, and MCP server configuration |
+| `ScriptMCP.Tests` | Unit and integration tests |
+
+`ScriptMCP.Console` and `ScriptMCP.Library` are the MCP server itself. `ScriptMCP.Extension` and `ScriptMCP.Plugin` are distribution wrappers for Claude Desktop and Claude Code respectively.
+
 ## Install
 
 Choose one of these installation modes first:
