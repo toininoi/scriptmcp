@@ -201,6 +201,8 @@ Open the `.mcpb` file in Claude Desktop to install the ScriptMCP extension. This
 
 Download `scriptmcp-plugin.zip` from the [latest release](https://github.com/sithiro/ScriptMCP/releases/latest) and install it as a Claude Desktop plugin. The plugin adds slash commands, skills, and hooks that complement the extension.
 
+![ScriptMCP Plugin Install](plugin.png)
+
 The plugin requires the ScriptMCP extension (step a) to be installed first.
 
 ### Running from Source
