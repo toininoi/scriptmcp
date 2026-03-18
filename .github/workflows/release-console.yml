@@ -291,6 +291,7 @@ jobs:
           PLUGIN_STAGE="artifacts/plugin-stage"
 
           # Copy plugin structure
+          mkdir -p "$PLUGIN_STAGE"
           cp -r ScriptMCP.Plugin/.claude-plugin "$PLUGIN_STAGE/.claude-plugin"
           cp -r ScriptMCP.Plugin/commands "$PLUGIN_STAGE/commands"
           cp -r ScriptMCP.Plugin/hooks "$PLUGIN_STAGE/hooks"
