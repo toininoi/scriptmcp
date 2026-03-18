@@ -181,60 +181,36 @@ Agent:  [calls set_database → path="sandbox.db", create=true]
 
 ## Install
 
-Choose one of these installation modes first:
+### Claude Desktop
 
-- `Source code` — download `Source code (zip)`, install the .NET 9 SDK, and run `ScriptMCP.Console` with `dotnet run`.
-- `Framework-dependent` — download `scriptmcp-<rid>-framework-dependent.zip`, extract it, and use the included executable. This requires a compatible .NET 9 runtime on the target machine.
-- `Self-contained` — download `scriptmcp-<rid>-self-contained.zip`, extract it, and use the included executable. No separate .NET install is required.
+#### a) Extension (MCP server)
 
-Supported release platforms:
+Download the `.mcpb` file for your platform from the [latest release](https://github.com/sithiro/ScriptMCP/releases/latest):
 
-- Windows x64
-- Linux x64
-- macOS arm64 (Apple Silicon)
+| Platform | File |
+| -------- | ---- |
+| Windows x64 | `scriptmcp-win-x64.mcpb` |
+| Linux x64 | `scriptmcp-linux-x64.mcpb` |
+| macOS arm64 (Apple Silicon) | `scriptmcp-osx-arm64.mcpb` |
 
-#### macOS — Removing the Quarantine Flag
+Open the `.mcpb` file in Claude Desktop to install the ScriptMCP extension. This provides the MCP server and all 18 tools.
 
-macOS Gatekeeper blocks unsigned executables downloaded from the internet. Before running ScriptMCP for the first time, remove the quarantine flag:
+![ScriptMCP Extension Install](extension.png)
 
-```bash
-xattr -d com.apple.quarantine /opt/scriptmcp/scriptmcp
-```
+#### b) Plugin (slash commands, skills, hooks)
 
-Replace the path with wherever you extracted the executable. This only needs to be done once.
+Download `scriptmcp-plugin.zip` from the [latest release](https://github.com/sithiro/ScriptMCP/releases/latest) and install it as a Claude Desktop plugin. The plugin adds slash commands, skills, and hooks that complement the extension.
 
-#### Verifying Build Provenance
+The plugin requires the ScriptMCP extension (step a) to be installed first.
 
-All release binaries include GitHub artifact attestations that cryptographically prove they were built by this repository's CI pipeline.
+### Running from Source
 
-**Via the GitHub website** — visit the [Attestations page](https://github.com/sithiro/ScriptMCP/attestations) to see all signed build records. Each attestation links back to the exact workflow run and commit that produced it.
+If you prefer to run ScriptMCP from source instead of using the extension, install the [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) and configure it as an MCP server.
 
-**Via the GitHub CLI** — if you have the [GitHub CLI](https://cli.github.com/) installed, you can verify a downloaded binary locally:
+#### Claude Code CLI
 
 ```bash
-gh attestation verify scriptmcp-osx-arm64-self-contained.zip --repo sithiro/ScriptMCP
-```
-
-### Claude Code CLI
-
-Use the `claude mcp add` command to register ScriptMCP as a user-level MCP server:
-
-Source code:
-
-```bash
-claude mcp add -s user -t stdio scriptmcp -- dotnet run --project C:\path\to\ScriptMCP.Console\ScriptMCP.Console.csproj -c Release
-```
-
-Windows self-contained or framework dependent:
-
-```bash
-claude mcp add -s user -t stdio scriptmcp -- 'C:\Tools\ScriptMcp 1.1.1\scriptmcp.exe'
-```
-
-macOS/Linux self-contained or framework dependent:
-
-```bash
-claude mcp add -s user -t stdio scriptmcp -- /opt/scriptmcp/scriptmcp
+claude mcp add -s user -t stdio scriptmcp -- dotnet run --project /path/to/ScriptMCP.Console/ScriptMCP.Console.csproj -c Release
 ```
 
 The `-s user` flag makes ScriptMCP available across all your projects. To scope it to a single project, use `-s project` instead.
@@ -245,71 +221,25 @@ To remove it:
 claude mcp remove -s user scriptmcp
 ```
 
-### Claude Desktop
+#### Claude Desktop (manual config)
 
-In Claude Desktop, go to **Settings → Developer** and click **Edit Config** to open `claude_desktop_config.json`. Add ScriptMCP to the `mcpServers` section:
-
-![Claude Desktop MCP Settings](snapshot3.png)
-
-Source code:
+Go to **Settings → Developer** and click **Edit Config** to open `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "scriptmcp": {
       "command": "dotnet",
-      "args": ["run", "--project", "C:\\path\\to\\ScriptMCP.Console\\ScriptMCP.Console.csproj", "-c", "Release"]
+      "args": ["run", "--project", "/path/to/ScriptMCP.Console/ScriptMCP.Console.csproj", "-c", "Release"]
     }
   }
 }
 ```
 
-Windows self-contained or framework dependent:
-
-```json
-{
-  "mcpServers": {
-    "scriptmcp": {
-      "command": "C:\\Tools\\ScriptMcp 1.1.1\\scriptmcp.exe",
-      "args": []
-    }
-  }
-}
-```
-
-macOS/Linux self-contained or framework dependent:
-
-```json
-{
-  "mcpServers": {
-    "scriptmcp": {
-      "command": "/opt/scriptmcp/scriptmcp",
-      "args": []
-    }
-  }
-}
-```
-
-### Codex CLI
-
-Use `codex mcp add` to register ScriptMCP:
-
-Source code:
+#### Codex CLI
 
 ```bash
-codex mcp add scriptmcp -- dotnet run --project C:\path\to\ScriptMCP.Console\ScriptMCP.Console.csproj -c Release
-```
-
-Windows self-contained or framework dependent:
-
-```bash
-codex mcp add scriptmcp -- "C:\Tools\ScriptMcp 1.1.1\scriptmcp.exe"
-```
-
-macOS/Linux self-contained or framework dependent:
-
-```bash
-codex mcp add scriptmcp -- /opt/scriptmcp/scriptmcp
+codex mcp add scriptmcp -- dotnet run --project /path/to/ScriptMCP.Console/ScriptMCP.Console.csproj -c Release
 ```
 
 Then start Codex normally and use `/mcp` inside the TUI to verify the server is active.
