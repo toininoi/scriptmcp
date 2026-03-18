@@ -272,8 +272,8 @@ jobs:
           zip -r "../scriptmcp-${{ matrix.rid }}.mcpb" .
 
       - name: Package Claude Code Plugin
+        if: matrix.rid == 'win-x64'
         run: |
-          SELF_CONTAINED_FOLDER="ScriptMCP ${{ needs.version.outputs.version }} ${{ matrix.rid }}"
           PLUGIN_STAGE="artifacts/plugin-stage"
 
           # Copy plugin structure
@@ -284,24 +284,14 @@ jobs:
           cp -r ScriptMCP.Plugin/skills "$PLUGIN_STAGE/skills"
           mkdir -p "$PLUGIN_STAGE/server"
 
-          # Copy the self-contained binary into the server folder
-          if [[ "${{ matrix.rid }}" == win-* ]]; then
-            BINARY_NAME="scriptmcp.exe"
-            COMMAND='${CLAUDE_PLUGIN_ROOT}/server/scriptmcp.exe'
-          else
-            BINARY_NAME="scriptmcp"
-            COMMAND='${CLAUDE_PLUGIN_ROOT}/server/scriptmcp'
-          fi
-          cp "artifacts/$SELF_CONTAINED_FOLDER/$BINARY_NAME" "$PLUGIN_STAGE/server/"
-
-          # Update plugin.json with the correct command path and version
-          jq --arg cmd "$COMMAND" --arg ver "${{ needs.version.outputs.version }}" \
-            '.mcpServers.scriptmcp.command = $cmd | .version = $ver' \
+          # Update plugin.json with the version
+          jq --arg ver "${{ needs.version.outputs.version }}" \
+            '.version = $ver' \
             "$PLUGIN_STAGE/.claude-plugin/plugin.json" > "$PLUGIN_STAGE/.claude-plugin/plugin.json.tmp"
           mv "$PLUGIN_STAGE/.claude-plugin/plugin.json.tmp" "$PLUGIN_STAGE/.claude-plugin/plugin.json"
 
           cd "$PLUGIN_STAGE"
-          zip -r "../scriptmcp-${{ matrix.rid }}-plugin.zip" .
+          zip -r "../scriptmcp-plugin.zip" .
 
       - name: Attest MCPB Build Provenance
         uses: actions/attest-build-provenance@v2
@@ -309,16 +299,20 @@ jobs:
           subject-path: "artifacts/scriptmcp-${{ matrix.rid }}.mcpb"
 
       - name: Attest Plugin Build Provenance
+        if: matrix.rid == 'win-x64'
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: "artifacts/scriptmcp-${{ matrix.rid }}-plugin.zip"
+          subject-path: "artifacts/scriptmcp-plugin.zip"
 
-      - name: Upload Asset
+      - name: Upload Assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          ASSETS=("artifacts/scriptmcp-${{ matrix.rid }}.mcpb")
+          if [[ "${{ matrix.rid }}" == "win-x64" ]]; then
+            ASSETS+=("artifacts/scriptmcp-plugin.zip")
+          fi
           gh release upload "${{ needs.version.outputs.tag }}" \
-            "artifacts/scriptmcp-${{ matrix.rid }}.mcpb" \
-            "artifacts/scriptmcp-${{ matrix.rid }}-plugin.zip" \
+            "${ASSETS[@]}" \
             --repo "${{ github.repository }}" \
             --clobber
