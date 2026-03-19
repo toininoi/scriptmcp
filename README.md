@@ -6,7 +6,7 @@ A dynamic function runtime for AI agents via the Model Context Protocol (MCP). S
 
 ## Overview
 
-ScriptMCP exposes 18 MCP tools that together form a self-extending toolbox:
+ScriptMCP exposes 17 MCP tools that together form a self-extending toolbox:
 
 | Tool                        | Description                                                     |
 | --------------------------- | --------------------------------------------------------------- |
@@ -18,7 +18,6 @@ ScriptMCP exposes 18 MCP tools that together form a self-extending toolbox:
 | `inspect_dynamic_function`  | View function metadata, with optional full source inspection    |
 | `compile_dynamic_function`  | Compile a code function from its stored source                  |
 | `delete_dynamic_function`   | Remove a function                                               |
-| `save_dynamic_functions`    | Legacy no-op (functions auto-persist to SQLite)                 |
 | `get_database`             | Show the currently active ScriptMCP database path               |
 | `set_database`             | Switch to a different ScriptMCP database at runtime             |
 | `delete_database`          | Delete a non-default ScriptMCP database                         |

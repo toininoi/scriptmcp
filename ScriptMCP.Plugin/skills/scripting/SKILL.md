@@ -266,7 +266,7 @@ Each scheduled execution either writes a new file named like `<function>_YYMMDD_
 
 ## Persistence
 
-Functions are auto-saved to SQLite at `%LOCALAPPDATA%\ScriptMCP\scriptmcp.db`. No manual save needed. Functions persist across server restarts and sessions.
+Functions are automatically persisted to SQLite on registration. No manual save is needed — functions survive server restarts and sessions. Use `get_database` to see the active database path.
 
 ## Additional Resources
 

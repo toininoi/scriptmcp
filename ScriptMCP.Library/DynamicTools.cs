@@ -744,15 +744,6 @@ public class DynamicTools
         return $"Function '{name}' recompiled successfully.";
     }
 
-    // ── Save (kept for backward compatibility but is now a no-op) ─────────────
-
-    [McpServerTool(Name = "save_dynamic_functions")]
-    [Description("Saves all registered dynamic functions to disk as JSON so they persist across server restarts")]
-    public string SaveDynamicFunctions()
-    {
-        return "Functions are now automatically persisted to SQLite on registration. No manual save needed.";
-    }
-
     // ── Invocation ────────────────────────────────────────────────────────────
 
     [McpServerTool(Name = "call_dynamic_function")]
