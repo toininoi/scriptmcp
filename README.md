@@ -195,7 +195,7 @@ Download the `.mcpb` file for your platform from the [latest release](https://gi
 | Linux x64 | `scriptmcp-linux-x64.mcpb` |
 | macOS arm64 (Apple Silicon) | `scriptmcp-osx-arm64.mcpb` |
 
-Open the `.mcpb` file in Claude Desktop to install the ScriptMCP extension. This provides the MCP server and all 18 tools.
+Open the `.mcpb` file in Claude Desktop to install the ScriptMCP extension. This provides the MCP server and all 17 tools.
 
 ![ScriptMCP Extension Install](snapshot5.png)
 
