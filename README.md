@@ -2,7 +2,7 @@
 
 A script runtime for AI agents via the Model Context Protocol (MCP). ScriptMCP lets your AI agent create, compile, and execute C# scripts on the fly — no restart required. Scripts persist in a local SQLite database and can be invoked in-process or out-of-process for parallel execution.
 
-![ScriptMCP in Claude Code](snapshot2.png)
+![ScriptMCP in Claude Code](snapshot4.png)
 
 ## Overview
 
@@ -197,13 +197,13 @@ Download the `.mcpb` file for your platform from the [latest release](https://gi
 
 Open the `.mcpb` file in Claude Desktop to install the ScriptMCP extension. This provides the MCP server and all 18 tools.
 
-![ScriptMCP Extension Install](extension.png)
+![ScriptMCP Extension Install](snapshot5.png)
 
 #### b) Plugin (slash commands, skills, hooks)
 
 Download `scriptmcp-plugin.zip` from the [latest release](https://github.com/sithiro/ScriptMCP/releases/latest) and install it as a Claude Desktop plugin. The plugin adds slash commands, skills, and hooks that complement the extension.
 
-![ScriptMCP Plugin Install](plugin.png)
+![ScriptMCP Plugin Install](snapshot6.png)
 
 The plugin requires the ScriptMCP extension (step a) to be installed first.
 
