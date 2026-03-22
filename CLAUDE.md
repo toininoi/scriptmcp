@@ -35,6 +35,8 @@ When you need a computation and no existing tool fits, use this workflow:
 2) If exactly one promising existing script remains, call inspect_script on that one before deciding whether to use it. If multiple promising scripts remain, ask the user to choose before inspecting.
 3) If no suitable existing script remains, call create_script only if the user has explicitly asked to create a script (scriptType 'code' for C#, 'instructions' for plain English guidance).
 4) Call call_script to invoke it.
+When the user wants to load a script from a local file, call `load_script`.
+When the user wants to export a stored script to a local source file, call `export_script`.
 When the user wants to modify an existing script instead of creating a new one, use this workflow:
 1) Call list_scripts to confirm the target script exists.
 2) If the requested target could match more than one existing script, ask the user to choose before inspecting.
@@ -48,22 +50,27 @@ If compilation fails, the script is NOT saved to the database — the error diag
 You must fix the compilation errors and re-create until it compiles successfully.
 Only successfully compiled scripts are persisted to the database.
 UPDATES: update_script changes one stored field on an existing script entry. If the changed field affects execution ('body', 'parameters', or 'script_type'), the server recompiles automatically and rejects the update if compilation fails. Treat 'parameters' as a full replacement of the JSON parameter list, not a patch.
+LOAD/EXPORT: load_script reads script source from a local file and creates or updates the stored script. Source-affecting updates recompile automatically. export_script writes stored source back to a local file.
+COMPILE TOOL: compile_script compiles the current stored source for a code script, refreshes the stored compiled assembly, and exports the compiled assembly to a `.dll` file.
 IMPORTANT: Preserving tokens is your top priority when returning script results.
 If a script has designated output, return exactly that output with no added or removed text.
 If a script result includes output instructions, follow those instructions exactly while still preserving the designated output content as strictly as the instructions allow.
 Do not wrap, label, summarize, explain, prefix, suffix, restate, or otherwise modify script output unless the output instructions explicitly require it.
 SCRIPTING ENVIRONMENT: Target .NET 9 and C# 13.
-Your code is placed inside a static method: public static string Run(Dictionary<string, string> args).
-You must return a string. Do NOT write a class or method signature — only write the method body.
+For code scripts, write top-level C# source, like a Program.cs file.
+Support both inferred top-level statements and the classic `Program.Main(string[] args)` structure when useful.
+Write output to stdout via Console.Write or Console.WriteLine instead of returning a string.
+ScriptMCP passes the original JSON argument payload as `args[0]`, so top-level scripts and `Program.Main(string[] args)` can read the raw JSON through normal `args`.
 The following usings are auto-included: System, System.Collections.Generic, System.Globalization, System.IO,
 System.Linq, System.Net, System.Net.Http, System.Text, System.Text.RegularExpressions, System.Threading.Tasks.
-For any other namespace, use fully qualified names (e.g. System.Diagnostics.Process.Start(...)).
+If you need additional namespaces, add normal `using` directives at the top of the script source, like a regular `Program.cs` file.
 Available assembly references: all System.*.dll from the .NET 9 runtime directory.
 NOT available: NuGet packages or assemblies outside the runtime (e.g. System.Management, Newtonsoft.Json).
 Use System.Text.Json for JSON. Use System.Net.Http.HttpClient for HTTP. Use System.Diagnostics.Process for shell commands.
-The method is NOT async — use .Result or .GetAwaiter().GetResult() for async calls.
+The generated entry point is not async-friendly by default — use .Result or .GetAwaiter().GetResult() for async calls.
 Supported parameter types: string (default), int, long, double, float, bool.
-Parameters are auto-parsed from the args dictionary and available as local variables in your code.
+Parameters are auto-parsed from that JSON payload and exposed as typed parameter names in your code.
+`scriptArgs` remains available as a compatibility dictionary parsed from the same `args[0]` JSON.
 INTER-SCRIPT CALLS: Two helpers are available inside code scripts to call other scripts.
 ScriptMCP.Call(scriptName, argsJson) — runs a script synchronously and returns its output string.
 ScriptMCP.Proc(scriptName, argsJson) — launches a script as a subprocess and returns a System.Diagnostics.Process

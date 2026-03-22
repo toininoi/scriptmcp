@@ -19,7 +19,7 @@ If an argument was provided ($ARGUMENTS), use it as the script name. Otherwise, 
 3. Ask the user to describe what the script should do
 4. Determine the appropriate script type: `code` for C# compiled scripts, `instructions` for plain-English guidance
 5. Define the parameters as a JSON array
-6. Write the script body (C# method body for code type, plain English for instructions type)
+6. Write the script body (top-level C# source for code type, plain English for instructions type)
 7. Register the script with `create_script`
 8. If compilation fails, fix the errors and re-register
 9. Once registered, call `inspect_script` to confirm and show the result to the user

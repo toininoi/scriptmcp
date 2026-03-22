@@ -153,9 +153,7 @@ builder.Services
         options.ServerInstructions = McpConstants.Instructions;
     })
     .WithStdioServerTransport()
-    .WithTools<ScriptTools>();
-    // MCP resource exposure disabled intentionally. Keep the type in the codebase
-    // for reference, but do not register it with the server.
-    // .WithResources<ScriptResources>();
+    .WithTools<ScriptTools>()
+    .WithResources<ScriptResources>();
 
 await builder.Build().RunAsync();

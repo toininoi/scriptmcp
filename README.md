@@ -6,17 +6,19 @@ A script runtime for AI agents via the Model Context Protocol (MCP). ScriptMCP l
 
 ## Overview
 
-ScriptMCP exposes 17 MCP tools that together form a self-extending toolbox:
+ScriptMCP exposes 20 MCP tools that together form a self-extending toolbox:
 
 | Tool                        | Description                                                     |
 | --------------------------- | --------------------------------------------------------------- |
 | `create_script`             | Create a new script (C# code or plain English instructions)     |
+| `load_script`               | Load a script from a file, creating or updating it              |
+| `export_script`             | Export a stored script to a local file                          |
 | `update_script`             | Update one field on an existing script entry                    |
 | `call_script`               | Execute a script in-process                                     |
 | `call_process`       | Execute a script out-of-process (subprocess)                    |
 | `list_scripts`              | List registered script names as a comma-delimited string        |
 | `inspect_script`            | View script metadata, with optional full source inspection      |
-| `compile_script`            | Compile a code script from its stored source                    |
+| `compile_script`            | Compile a code script and export its assembly to a file         |
 | `delete_script`             | Remove a script                                                 |
 | `get_database`             | Show the currently active ScriptMCP database path               |
 | `set_database`             | Switch to a different ScriptMCP database at runtime             |
@@ -32,17 +34,21 @@ ScriptMCP exposes 17 MCP tools that together form a self-extending toolbox:
 
 1. **Discover** — the AI agent discovers available scripts via `list_scripts` at the start of each conversation
 2. **Create** — the AI agent writes and creates C# scripts or plain English instructions on your behalf (or you provide explicit code)
-3. **Persist** — scripts are **compiled via Roslyn** on creation and **stored in SQLite** — they survive server restarts
-4. **Execute** — scripts are invoked automatically by the AI via `call_script` (in-process) or `call_process` (out-of-process)
-5. **Switch Databases** — the active SQLite database can be inspected or changed at runtime via `get_database` and `set_database`
-6. **Schedule** — scripts can be scheduled to run at recurring intervals via `create_scheduled_task`
-7. **Update** — existing scripts can be revised in place with `update_script` when only one stored field needs to change
-8. **Delete** — scripts or non-default databases can be removed when no longer needed
+3. **Load / Export** — script source can be synchronized with local files via `load_script` and `export_script`
+4. **Persist** — scripts are **compiled via Roslyn** on creation and stored in SQLite — they survive server restarts
+5. **Execute** — scripts are invoked automatically by the AI via `call_script` (in-process) or `call_process` (out-of-process)
+6. **Switch Databases** — the active SQLite database can be inspected or changed at runtime via `get_database` and `set_database`
+7. **Schedule** — scripts can be scheduled to run at recurring intervals via `create_scheduled_task`
+8. **Update** — existing scripts can be revised in place with `update_script`, and source-affecting updates recompile automatically
+9. **Compile / Export Assembly** — `compile_script` recompiles the stored source and exports the assembly to a `.dll`
+10. **Delete** — scripts or non-default databases can be removed when no longer needed
 
 ### Script Types
 
-- **`code`** — C# method bodies compiled at runtime. Has access to .NET 9 APIs including HTTP, JSON, regex, diagnostics, and more.
+- **`code`** — top-level C# source, like a `Program.cs` file, compiled at runtime. Script output comes from `Console.Write` / `Console.WriteLine`.
 - **`instructions`** — Plain English instructions the AI reads and follows (e.g. multi-step workflows combining multiple tools and web search).
+
+Code scripts support full top-level C# on .NET 9 / C# 13. You can paste normal `Program.cs` style code with `using` directives, top-level statements, local functions, classes, enums, records, and helper types in a single script. Classic `Program.Main(string[] args)` is also supported.
 
 ### In-Process Execution
 
@@ -72,13 +78,67 @@ Scripts can include optional **output instructions** that tell the AI how to for
 
 ## Examples
 
+### Short top-level C# examples
+
+Hello world:
+
+```csharp
+using System;
+
+Console.WriteLine("Hello, world!");
+```
+
+Program class and Main method example (the older style in Microsoft’s console-template docs):
+
+```csharp
+using System;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        Console.WriteLine("Hello from Main.");
+    }
+}
+```
+
+Fibonacci from the JSON payload in `args[0]`:
+
+```csharp
+using System;
+using System.Text.Json;
+
+var doc = JsonDocument.Parse(args[0]);
+var n = doc.RootElement.TryGetProperty("n", out var value) ? value.GetInt32() : 10;
+
+static long Fibonacci(int value)
+{
+    if (value <= 1)
+        return value;
+
+    long a = 0;
+    long b = 1;
+
+    for (var i = 2; i <= value; i++)
+    {
+        var next = a + b;
+        a = b;
+        b = next;
+    }
+
+    return b;
+}
+
+Console.WriteLine(Fibonacci(n));
+```
+
 ### Let the AI create a script for you
 
 Just describe what you need in natural language — the AI writes the C# code, creates the script, and calls it:
 
 ```
 You:    create a script that returns the current time, nothing else
-Agent:  [creates get_time → return DateTime.Now.ToString("hh:mm:ss tt");]
+Agent:  [creates get_time → Console.Write(DateTime.Now.ToString("hh:mm:ss tt"));]
 
 You:    what time is it?
 Agent:  10:07:39 pm
@@ -117,9 +177,9 @@ You:    create get_btc_price_eur — gets BTC price then tells the AI to convert
 Agent:  [creates get_btc_price_eur as a code script]:
 
         var price = ScriptMCP.Call("get_btc_price", "{}").Trim();
-        return price + "\n[Output Instructions]: This is the current BTC price in USD. "
-             + "Now call the usd_to_eur script with this amount to convert it, "
-             + "then return the EUR result to the user.";
+        Console.Write(price + "\n[Output Instructions]: This is the current BTC price in USD. "
+            + "Now call the usd_to_eur script with this amount to convert it, "
+            + "then return the EUR result to the user.");
 
 You:    what's bitcoin worth in euros?
 Agent:  [calls get_btc_price_eur → gets $68,721.00]

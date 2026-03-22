@@ -22,7 +22,7 @@ public sealed class CliOutputModeTests
             name: name,
             description: "CLI write new",
             parameters: "[]",
-            body: "return \"new-file-output\";",
+            body: "Console.Write(\"new-file-output\");",
             functionType: "code",
             outputInstructions: "");
 
@@ -48,7 +48,7 @@ public sealed class CliOutputModeTests
             name: name,
             description: "CLI append",
             parameters: "[]",
-            body: "return \"append-output\";",
+            body: "Console.Write(\"append-output\");",
             functionType: "code",
             outputInstructions: "");
 
@@ -78,7 +78,7 @@ public sealed class CliOutputModeTests
             name: innerName,
             description: "Inner function",
             parameters: "[]",
-            body: "return \"inner-ok\";",
+            body: "Console.Write(\"inner-ok\");",
             functionType: "code",
             outputInstructions: "");
 
@@ -86,7 +86,7 @@ public sealed class CliOutputModeTests
             name: outerName,
             description: "Outer function",
             parameters: "[]",
-            body: $"return ScriptMCP.Call(\"{innerName}\", \"{{}}\").Trim();",
+            body: $"Console.Write(ScriptMCP.Call(\"{innerName}\", \"{{}}\").Trim());",
             functionType: "code",
             outputInstructions: "");
 

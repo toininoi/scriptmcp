@@ -6,9 +6,7 @@ using ModelContextProtocol.Server;
 
 namespace ScriptMCP.Library;
 
-// MCP resource exposure disabled intentionally. This type is kept only as a
-// reference implementation and is not registered by the server.
-// [McpServerResourceType]
+[McpServerResourceType]
 public class ScriptResources
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -18,11 +16,11 @@ public class ScriptResources
 
     private static string ConnectionString => $"Data Source={ScriptTools.SavePath}";
 
-    // [McpServerResource(
-    //     Name = "scripts_catalog",
-    //     Title = "Scripts Catalog",
-    //     MimeType = "application/json",
-    //     UriTemplate = "scriptmcp://scripts")]
+    [McpServerResource(
+        Name = "scripts_catalog",
+        Title = "Scripts Catalog",
+        MimeType = "application/json",
+        UriTemplate = "scriptmcp://scripts")]
     [Description("Lists all registered scripts with their descriptions, types, and parameter metadata.")]
     public string GetScriptsCatalog()
     {
@@ -65,11 +63,11 @@ public class ScriptResources
         }, JsonOptions);
     }
 
-    // [McpServerResource(
-    //     Name = "script_details",
-    //     Title = "Script Details",
-    //     MimeType = "text/plain",
-    //     UriTemplate = "scriptmcp://scripts/{name}")]
+    [McpServerResource(
+        Name = "script_details",
+        Title = "Script Details",
+        MimeType = "text/plain",
+        UriTemplate = "scriptmcp://scripts/{name}")]
     [Description("Returns the inspection view for a single registered script.")]
     public string GetScriptDetails(
         [Description("The script name to inspect")] string name)

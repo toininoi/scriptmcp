@@ -23,11 +23,13 @@ ScriptMCP exposes these MCP tools:
 | ----------------------- | --------------------------------------------------------------------------- |
 | `list_scripts`          | Discover all registered scripts                                             |
 | `create_script`         | Create a new script                                                         |
+| `load_script`           | Load script source from a local file, creating or updating it               |
+| `export_script`         | Export stored script source to a local file                                 |
 | `update_script`         | Modify a single field on an existing script                                 |
 | `inspect_script`        | View metadata, parameters, and optionally source                            |
 | `call_script`           | Execute a script in-process                                                 |
 | `call_process`   | Execute a script out-of-process (isolated, parallel)                        |
-| `compile_script`        | Recompile a code script                                                     |
+| `compile_script`        | Compile a code script and export its assembly                               |
 | `delete_script`         | Remove a script                                                             |
 | `get_database`          | Return the currently active ScriptMCP database path                         |
 | `set_database`          | Switch the active ScriptMCP database at runtime                             |
@@ -43,19 +45,18 @@ ScriptMCP exposes these MCP tools:
 
 ### Code Scripts (`scriptType: "code"`)
 
-Compiled C# method bodies targeting .NET 9 / C# 13. The code is placed inside:
+Compiled top-level C# source targeting .NET 9 / C# 13. Write source like a `Program.cs` file and send output to stdout with `Console.Write` or `Console.WriteLine`.
 
-```csharp
-public static string Run(Dictionary<string, string> args)
-```
+Support both:
 
-Write only the method body — no class or method signature. Must return a string.
+- inferred top-level statements
+- classic `Program.Main(string[] args)` when useful
 
 **Auto-included namespaces:** System, System.Collections.Generic, System.Globalization, System.IO, System.Linq, System.Net, System.Net.Http, System.Text, System.Text.RegularExpressions, System.Threading.Tasks.
 
 **Available libraries:** All `System.*` assemblies from .NET 9 runtime. Use `System.Text.Json` for JSON, `System.Net.Http.HttpClient` for HTTP, `System.Diagnostics.Process` for shell commands. NuGet packages are NOT available.
 
-**The method is NOT async** — use `.Result` or `.GetAwaiter().GetResult()` for async calls.
+**The generated entry point is not async-friendly by default** — use `.Result` or `.GetAwaiter().GetResult()` for async calls.
 
 ### Instructions Scripts (`scriptType: "instructions"`)
 
@@ -77,19 +78,19 @@ Define parameters as a JSON array:
 [{"name": "url", "type": "string", "description": "The URL to fetch"}]
 ```
 
-Supported types: `string` (default), `int`, `long`, `double`, `float`, `bool`. Parameters are auto-parsed and available as local variables.
+Supported types: `string` (default), `int`, `long`, `double`, `float`, `bool`. ScriptMCP passes the original JSON payload as `args[0]`, and declared parameters are auto-parsed from that JSON into typed names. `scriptArgs` remains available as a compatibility dictionary.
 
 ### Error Handling
 
-Wrap risky operations in try-catch and return meaningful error messages:
+Wrap risky operations in try-catch and write meaningful error messages:
 
 ```csharp
 try {
     var client = new HttpClient();
     var response = client.GetStringAsync(url).Result;
-    return response;
+    Console.Write(response);
 } catch (Exception ex) {
-    return $"Error: {ex.Message}";
+    Console.Write($"Error: {ex.Message}");
 }
 ```
 
@@ -101,7 +102,7 @@ try {
 var client = new HttpClient();
 client.DefaultRequestHeaders.Add("User-Agent", "ScriptMCP");
 var json = client.GetStringAsync(url).Result;
-return json;
+Console.Write(json);
 ```
 
 **File operations:**
@@ -179,6 +180,12 @@ Attach `outputInstructions` when registering a script to control presentation:
 ## Scheduling & Output Files
 
 ### Database Management
+
+Use `load_script` when the user wants to create or update a script from a local file. On update, existing description, parameters, script type, and output instructions are preserved unless replacements are provided.
+
+Use `export_script` when the user wants to write a stored script back to a local file.
+
+Use `compile_script` when the user wants a `.dll` from the current stored source. It recompiles the code script, refreshes the stored compiled assembly, and writes the assembly to disk.
 
 Use `get_database` when the user asks which ScriptMCP database is currently active or where scripts are being stored.
 
